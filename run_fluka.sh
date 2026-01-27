@@ -25,6 +25,12 @@ echo "Starting FLUKA simulation..."
 docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     set -e
 
+    # Install gfortran if not present
+    if ! command -v gfortran &> /dev/null; then
+        echo "Installing gfortran..."
+        apt-get update -qq && apt-get install -y -qq gfortran
+    fi
+
     # FLUKA installation path
     FLUPRO=/usr/local/fluka
     export FLUPRO
