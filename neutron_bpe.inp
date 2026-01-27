@@ -1,8 +1,8 @@
 TITLE
 Neutron capture in borated polyethylene - 1 MeV neutron
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Use NEW-DEFA instead of PRECISIO to avoid pointwise neutron requirement
-DEFAULTS                                                              NEW-DEFA
+* PRECISIO enables pointwise neutron transport for accurate low-E simulation
+DEFAULTS                                                              PRECISIO
 *
 GEOBEGIN                                                              COMBNAME
     0    0          Borated polyethylene neutron capture study
@@ -23,14 +23,6 @@ GEOEND
 * Material indices: HYDROGEN=3, BORON=5, CARBON=6
 MATERIAL         0.0       0.0      0.95      26.0       0.0       0.0BORPOLY
 COMPOUND       -0.12       3.0     -0.63       6.0     -0.05       5.0BORPOLY
-*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Enable low-energy neutron transport (group-wise, 260 groups)
-* LOW-NEUT: WHAT(1)=max group, WHAT(2)=max group for photon production
-*           WHAT(6)=temperature in Kelvin
-LOW-NEUT       260.0     260.0       0.0       0.0       0.0     293.0
-LOW-MAT      BORPOLY      5.0      -2.0     293.0                      BORON
-LOW-MAT      BORPOLY      6.0      -2.0     293.0                      CARBON
-LOW-MAT      BORPOLY      1.0      -2.0     293.0                      HYDROGEN
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Assignments
 ASSIGNMA    BLCKHOLE   BLKHOLE

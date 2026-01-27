@@ -25,16 +25,49 @@ echo "Starting FLUKA simulation..."
 docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     set -e
 
-    # Install gfortran if not present
-    if ! command -v gfortran &> /dev/null; then
-        echo "Installing gfortran..."
-        apt-get update -qq && apt-get install -y -qq gfortran
+    # Install required packages if not present
+    if ! command -v gfortran &> /dev/null || ! command -v wget &> /dev/null; then
+        echo "Installing required packages..."
+        apt-get update -qq && apt-get install -y -qq gfortran wget
     fi
 
     # FLUKA installation path
     FLUPRO=/usr/local/fluka
     export FLUPRO
     export FLUFOR=gfortran
+
+    # Download neutron data if not present
+    NEUTRON_DATA_DIR="$FLUPRO/data/neutron"
+    if [ ! -d "$NEUTRON_DATA_DIR" ]; then
+        echo "Downloading FLUKA pointwise neutron data libraries..."
+        echo "This may take a few minutes on first run..."
+        mkdir -p "$FLUPRO/data"
+        cd "$FLUPRO/data"
+
+        # Download from FLUKA website
+        wget -q --show-progress https://fluka.cern/download/neutron-data-libraries/endf8r0_xsec_fluka4-4.4_20241021.tar.xz -O neutron_data.tar.xz || {
+            echo "Failed to download neutron data. Trying alternative URL..."
+            wget -q --show-progress https://fluka.cern/download/latest/data/endf8r0_xsec.tar.xz -O neutron_data.tar.xz || {
+                echo "ERROR: Could not download neutron data libraries."
+                echo "Please download manually from: https://fluka.cern/download/neutron-data-libraries"
+                exit 1
+            }
+        }
+
+        echo "Extracting neutron data..."
+        tar -xf neutron_data.tar.xz
+        rm neutron_data.tar.xz
+
+        # Find and rename the extracted directory to "neutron"
+        EXTRACTED_DIR=$(ls -d */ 2>/dev/null | head -1)
+        if [ -n "$EXTRACTED_DIR" ] && [ ! -d "neutron" ]; then
+            mv "$EXTRACTED_DIR" neutron
+        fi
+
+        echo "Neutron data installed successfully."
+    else
+        echo "Neutron data already present."
+    fi
 
     INPUT_FILE="neutron_bpe.inp"
     INPUT_BASE="${INPUT_FILE%.inp}"
