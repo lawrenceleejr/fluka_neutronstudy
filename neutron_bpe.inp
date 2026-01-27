@@ -17,23 +17,22 @@ BPEREGIO     5 +bpeblk
 END
 GEOEND
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Material: Borated polyethylene (5% B by mass in polyethylene)
-* Using FLUKA built-in POLYETHY and adding boron
-MATERIAL         5.0               2.34                              BORON
-LOW-MAT        BORON       5.0      10.0      296.                    BORON
-MATERIAL                            0.95                              BORITE
-COMPOUND        -0.12  HYDROGEN     -0.63    CARBON     -0.05    BORONBORITE
-*
+* Material: Borated polyethylene compound
+* Density 0.95 g/cm3, composition by mass: 12% H, 63% C, 5% B (natural)
+* HYDROGEN, CARBON, BORON are built-in FLUKA materials
+MATERIAL                             0.95                              BORPOLY
+COMPOUND       -0.12  HYDROGEN     -0.63    CARBON    -0.05     BORONBORPOLY
+*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Assignments
 ASSIGNMA    BLCKHOLE   BLKHOLE
 ASSIGNMA         AIR  AIRREGIO
-ASSIGNMA      BORITE  BPEREGIO
+ASSIGNMA     BORPOLY  BPEREGIO
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Beam: 1 MeV neutron at origin going +Z
 BEAM           0.001       0.0       0.0       0.0       0.0       1.0NEUTRON
 BEAMPOS          0.0       0.0       0.0
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Scoring
+* Scoring energy deposition
 USRBIN          10.0    ENERGY      -21.      10.0      10.0      35.0EDEP-XZ
 USRBIN         -10.0     -10.0       -5.      100.        1.      200. &
 USRBIN          10.0    ENERGY      -22.      10.0      10.0      35.0EDEP-3D
