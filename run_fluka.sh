@@ -22,86 +22,91 @@ mkdir -p output
 
 # Run FLUKA simulation in Docker
 echo "Starting FLUKA simulation..."
-docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c "
+docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     set -e
 
+    # FLUKA installation path
+    FLUPRO=/opt/fluka
+    export FLUPRO
+    export FLUFOR=gfortran
+
+    INPUT_FILE="neutron_bpe.inp"
+    INPUT_BASE="${INPUT_FILE%.inp}"
+    CYCLES='"$CYCLES"'
+
     # Copy input file to working directory
+    mkdir -p /fluka_work
+    cd /fluka_work
     cp /data/$INPUT_FILE .
 
-    # Source FLUKA environment if needed
-    if [ -f /opt/fluka/bin/fluka ]; then
-        export FLUPRO=/opt/fluka
-        export FLUFOR=gfortran
-    fi
-
-    # Find FLUKA installation
-    FLUKA_BIN=\$(which fluka 2>/dev/null || echo '/opt/fluka/bin/fluka')
-    RFLUKA=\$(which rfluka 2>/dev/null || echo '\$FLUPRO/flutil/rfluka')
-
-    echo 'FLUKA binary: '\$FLUKA_BIN
-    echo 'Running simulation with rfluka...'
+    echo "FLUKA path: $FLUPRO"
+    echo "Running simulation with rfluka..."
 
     # Run FLUKA using rfluka script
-    # -N cycles -M parallel runs
-    \$FLUPRO/flutil/rfluka -N0 -M$CYCLES ${INPUT_FILE%.inp}
+    # -N0 means start from cycle 0, -M is number of cycles
+    $FLUPRO/flutil/rfluka -N0 -M${CYCLES} ${INPUT_BASE}
 
-    echo ''
-    echo 'Simulation complete. Processing output...'
+    echo ""
+    echo "Simulation complete. Processing output..."
 
     # Find and process USRBIN output files
-    # USRBIN files are named like: inputname_fort.21, inputname_fort.22, etc.
-
-    # Merge USRBIN results from all cycles using usbsuw
-    echo 'Merging USRBIN output files...'
+    echo "Merging USRBIN output files..."
 
     # For unit 21 (XZ projection)
-    if ls ${INPUT_FILE%.inp}001_fort.21 2>/dev/null; then
-        echo '${INPUT_FILE%.inp}001_fort.21' > usrbin21_list.txt
-        for i in \$(seq -f '%03g' 2 $CYCLES); do
-            if [ -f ${INPUT_FILE%.inp}\${i}_fort.21 ]; then
-                echo '${INPUT_FILE%.inp}'\${i}'_fort.21' >> usrbin21_list.txt
+    if ls ${INPUT_BASE}001_fort.21 1>/dev/null 2>&1; then
+        echo "${INPUT_BASE}001_fort.21" > usrbin21_list.txt
+        for i in $(seq -f "%03g" 2 $CYCLES); do
+            if [ -f "${INPUT_BASE}${i}_fort.21" ]; then
+                echo "${INPUT_BASE}${i}_fort.21" >> usrbin21_list.txt
             fi
         done
+        cat usrbin21_list.txt
 
-        \$FLUPRO/flutil/usbsuw < usrbin21_list.txt
-        mv usrbin21_list.txt_sum edep_xz.bnn
+        $FLUPRO/flutil/usbsuw < usrbin21_list.txt
+        if [ -f usrbin21_list.txt_sum ]; then
+            mv usrbin21_list.txt_sum edep_xz.bnn
+        fi
     fi
 
     # For unit 22 (3D)
-    if ls ${INPUT_FILE%.inp}001_fort.22 2>/dev/null; then
-        echo '${INPUT_FILE%.inp}001_fort.22' > usrbin22_list.txt
-        for i in \$(seq -f '%03g' 2 $CYCLES); do
-            if [ -f ${INPUT_FILE%.inp}\${i}_fort.22 ]; then
-                echo '${INPUT_FILE%.inp}'\${i}'_fort.22' >> usrbin22_list.txt
+    if ls ${INPUT_BASE}001_fort.22 1>/dev/null 2>&1; then
+        echo "${INPUT_BASE}001_fort.22" > usrbin22_list.txt
+        for i in $(seq -f "%03g" 2 $CYCLES); do
+            if [ -f "${INPUT_BASE}${i}_fort.22" ]; then
+                echo "${INPUT_BASE}${i}_fort.22" >> usrbin22_list.txt
             fi
         done
 
-        \$FLUPRO/flutil/usbsuw < usrbin22_list.txt
-        mv usrbin22_list.txt_sum edep_3d.bnn
+        $FLUPRO/flutil/usbsuw < usrbin22_list.txt
+        if [ -f usrbin22_list.txt_sum ]; then
+            mv usrbin22_list.txt_sum edep_3d.bnn
+        fi
     fi
 
     # Convert binary USRBIN to ASCII using usbrea
-    echo 'Converting to ASCII format...'
+    echo "Converting to ASCII format..."
 
     if [ -f edep_xz.bnn ]; then
-        echo -e 'edep_xz.bnn\nedep_xz.dat\n' | \$FLUPRO/flutil/usbrea
+        echo -e "edep_xz.bnn\nedep_xz.dat\n" | $FLUPRO/flutil/usbrea
     fi
 
     if [ -f edep_3d.bnn ]; then
-        echo -e 'edep_3d.bnn\nedep_3d.dat\n' | \$FLUPRO/flutil/usbrea
+        echo -e "edep_3d.bnn\nedep_3d.dat\n" | $FLUPRO/flutil/usbrea
     fi
 
     # Copy all outputs back to data directory
+    mkdir -p /data/output
     cp -f *.bnn /data/output/ 2>/dev/null || true
     cp -f *.dat /data/output/ 2>/dev/null || true
     cp -f *.out /data/output/ 2>/dev/null || true
     cp -f *.log /data/output/ 2>/dev/null || true
     cp -f *_fort.* /data/output/ 2>/dev/null || true
+    cp -f *.err /data/output/ 2>/dev/null || true
 
-    echo ''
-    echo 'Output files copied to /data/output/'
+    echo ""
+    echo "Output files copied to /data/output/"
     ls -la /data/output/
-"
+'
 
 echo ""
 echo "============================================"
