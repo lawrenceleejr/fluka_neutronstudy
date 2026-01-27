@@ -50,7 +50,22 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
 
     # Run FLUKA using rfluka script
     # -N0 means start from cycle 0, -M is number of cycles
-    $FLUPRO/bin/rfluka -N0 -M${CYCLES} ${INPUT_BASE}
+    $FLUPRO/bin/rfluka -N0 -M${CYCLES} ${INPUT_BASE} || {
+        echo ""
+        echo "=== FLUKA run failed. Checking logs ==="
+        echo "--- .out file ---"
+        cat ${INPUT_BASE}001.out 2>/dev/null | tail -100 || echo "No .out file"
+        echo "--- .err file ---"
+        cat ${INPUT_BASE}001.err 2>/dev/null || echo "No .err file"
+        echo "--- .log file ---"
+        cat ${INPUT_BASE}001.log 2>/dev/null || echo "No .log file"
+        # Copy whatever we have
+        mkdir -p /data/output
+        cp -f *.out /data/output/ 2>/dev/null || true
+        cp -f *.err /data/output/ 2>/dev/null || true
+        cp -f *.log /data/output/ 2>/dev/null || true
+        exit 1
+    }
 
     echo ""
     echo "Simulation complete. Processing output..."
