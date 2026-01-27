@@ -1,0 +1,75 @@
+TITLE
+Neutron capture in borated polyethylene - 1 MeV neutron
+*
+*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+* Physics settings for low energy neutron transport
+DEFAULTS                                                              PRECISIO
+*
+* Geometry definition using combinatorial geometry
+GEOBEGIN                                                              COMBNAME
+    0    0          Borated polyethylene neutron capture study
+* Bodies (RPP = Rectangular Parallelepiped)
+* Black hole outer boundary
+RPP blkbdy     -100.0 100.0 -100.0 100.0 -100.0 100.0
+* Borated polyethylene block: 20cm x 20cm x 40cm centered at origin
+RPP bpeblk     -10.0 10.0 -10.0 10.0 -5.0 35.0
+* Air region around the block
+RPP airbox     -50.0 50.0 -50.0 50.0 -50.0 50.0
+END
+* Regions
+* Region 1: Black hole (void boundary)
+BLKHOLE      5 +blkbdy -airbox
+* Region 2: Air surrounding the BPE block
+AIR          5 +airbox -bpeblk
+* Region 3: Borated polyethylene block
+BPE          5 +bpeblk
+END
+GEOEND
+*
+*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+* Material definitions
+* Borated polyethylene: ~5% boron by weight in polyethylene
+* Polyethylene (C2H4)n with boron added
+* Density approximately 0.95 g/cm3
+*
+* First define the compound material
+MATERIAL                            0.95                              BPOLY
+* Borated polyethylene composition by mass fraction:
+* H: 11.6%, C: 61.2%, B-10: 0.99%, B-11: 3.96% (natural boron ~5%)
+* Using simplified: H 11.9%, C 63.1%, B 5% (natural isotopic)
+COMPOUND       -0.119  HYDROGEN    -0.631    CARBON   -0.05     BORONBPOLY
+*
+* Material assignments
+ASSIGNMA    BLCKHOLE   BLKHOLE
+ASSIGNMA         AIR       AIR
+ASSIGNMA       BPOLY       BPE
+*
+*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+* Neutron beam definition
+* BEAM card: 1 MeV neutron (kinetic energy in GeV)
+BEAM           0.001                                                  NEUTRON
+* Beam position: origin, going in +Z direction
+BEAMPOS          0.0       0.0       0.0       0.0       0.0
+*
+*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+* Scoring - Energy deposition
+* USRBIN for 2D XZ projection (integrated over Y)
+* Type 10.0 = Cartesian mesh, ENERGY scoring
+USRBIN          10.0    ENERGY      -21.      10.0      10.0      35.0EDEP-XZ
+USRBIN         -10.0     -10.0      -5.0      100.        1.      200.&
+*
+* Also score total energy deposition in 3D for reference
+USRBIN          10.0    ENERGY      -22.      10.0      10.0      35.0EDEP-3D
+USRBIN         -10.0     -10.0      -5.0       50.       50.      100.&
+*
+*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+* Enable low energy neutron transport
+LOW-NEUT        72.0      72.0                          296.0
+*
+* Random number seed
+RANDOMIZ         1.0
+*
+* Number of primary particles to simulate
+START        10000.0
+*
+STOP
