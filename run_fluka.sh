@@ -26,7 +26,7 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     set -e
 
     # FLUKA installation path
-    FLUPRO=/opt/fluka
+    FLUPRO=/usr/local/fluka
     export FLUPRO
     export FLUFOR=gfortran
 
@@ -44,7 +44,7 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
 
     # Run FLUKA using rfluka script
     # -N0 means start from cycle 0, -M is number of cycles
-    $FLUPRO/flutil/rfluka -N0 -M${CYCLES} ${INPUT_BASE}
+    $FLUPRO/bin/rfluka -N0 -M${CYCLES} ${INPUT_BASE}
 
     echo ""
     echo "Simulation complete. Processing output..."
@@ -62,7 +62,7 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
         done
         cat usrbin21_list.txt
 
-        $FLUPRO/flutil/usbsuw < usrbin21_list.txt
+        $FLUPRO/bin/usbsuw < usrbin21_list.txt
         if [ -f usrbin21_list.txt_sum ]; then
             mv usrbin21_list.txt_sum edep_xz.bnn
         fi
@@ -77,7 +77,7 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
             fi
         done
 
-        $FLUPRO/flutil/usbsuw < usrbin22_list.txt
+        $FLUPRO/bin/usbsuw < usrbin22_list.txt
         if [ -f usrbin22_list.txt_sum ]; then
             mv usrbin22_list.txt_sum edep_3d.bnn
         fi
@@ -87,11 +87,11 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     echo "Converting to ASCII format..."
 
     if [ -f edep_xz.bnn ]; then
-        echo -e "edep_xz.bnn\nedep_xz.dat\n" | $FLUPRO/flutil/usbrea
+        echo -e "edep_xz.bnn\nedep_xz.dat\n" | $FLUPRO/bin/usbrea
     fi
 
     if [ -f edep_3d.bnn ]; then
-        echo -e "edep_3d.bnn\nedep_3d.dat\n" | $FLUPRO/flutil/usbrea
+        echo -e "edep_3d.bnn\nedep_3d.dat\n" | $FLUPRO/bin/usbrea
     fi
 
     # Copy all outputs back to data directory
