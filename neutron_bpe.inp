@@ -18,9 +18,11 @@ END
 GEOEND
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Material: Borated polyethylene compound
-* Density 0.95 g/cm3, composition by mass: 12% H, 63% C, 5% B (natural)
-MATERIAL          0.0       0.0      0.95       0.0       0.0       0.0 BORPOLY
-COMPOUND         -0.12  HYDROGEN     -0.63    CARBON     -0.05    BORON BORPOLY
+* Using FLUKA MATERIAL with explicit material number 26 (first user material)
+* WHAT(1)=0 (Z, computed), WHAT(2)=0 (A, computed), WHAT(3)=density
+* WHAT(4)=26 (material index), WHAT(5)=0, WHAT(6)=0
+MATERIAL         0.0       0.0      0.95      26.0       0.0       0.0BORPOLY
+COMPOUND        -0.12  HYDROGEN     -0.63    CARBON     -0.05    BORONBORPOLY
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Assignments
 ASSIGNMA    BLCKHOLE   BLKHOLE
