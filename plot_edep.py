@@ -486,17 +486,17 @@ def main():
         epilog="""
 Examples:
   python3 plot_edep.py                           # Plot latest output
-  python3 plot_edep.py output/20240101_120000    # Plot specific output
+  python3 plot_edep.py -o output/20240101_120000 # Plot specific output
   python3 plot_edep.py --scan                    # Run energy scan (default energies)
   python3 plot_edep.py --scan --energies 0.1,1,10  # Custom energies
   python3 plot_edep.py --scan --no-run           # Plot existing outputs only
         """
     )
 
+    parser.add_argument('-o', '--output-dir', dest='output_dir', default='./output/latest',
+                        help='Output directory to plot (default: ./output/latest)')
     parser.add_argument('--scan', action='store_true',
                         help='Enable energy scan mode')
-    parser.add_argument('output_dir', nargs='?', default='./output/latest',
-                        help='Output directory to plot (default: ./output/latest)')
     parser.add_argument('--energies', type=str, default='0.01,0.1,1,10,100,1000',
                         help='Comma-separated list of energies in MeV (default: 0.01,0.1,1,10,100,1000)')
     parser.add_argument('--cycles', type=int, default=5,
