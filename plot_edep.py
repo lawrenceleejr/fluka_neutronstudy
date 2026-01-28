@@ -128,19 +128,25 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png'):
     # So we need to transpose: C should be (nz, nx) for Z on vertical, X on horizontal
     plot_data = data_2d.T  # Now shape (nz, nx)
 
-    # Mask zeros for log scale
-    plot_data_masked = np.ma.masked_where(plot_data <= 0, plot_data)
+    # Find data range for non-zero values
+    nonzero_data = plot_data[plot_data > 0]
+    if len(nonzero_data) > 0:
+        vmin = nonzero_data.min()
+        vmax = nonzero_data.max()
+    else:
+        vmin, vmax = 1e-12, 1e-6
 
-    vmin = plot_data_masked.min() if plot_data_masked.count() > 0 else 1e-12
-    vmax = plot_data_masked.max() if plot_data_masked.count() > 0 else 1e-6
+    # Set floor for log scale - zeros become minimum value
+    vmin = max(vmin, vmax / 1e6)
+    plot_data_floored = np.where(plot_data <= 0, vmin, plot_data)
 
     print(f"Plot range: {vmin:.2e} to {vmax:.2e}")
 
     # Use log scale
-    norm = colors.LogNorm(vmin=max(vmin, vmax/1e6), vmax=vmax)
+    norm = colors.LogNorm(vmin=vmin, vmax=vmax)
 
-    im = ax.pcolormesh(x, z, plot_data_masked,
-                       cmap='hot',
+    im = ax.pcolormesh(x, z, plot_data_floored,
+                       cmap='jet',
                        norm=norm,
                        shading='flat')
 
