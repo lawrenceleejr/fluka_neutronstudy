@@ -101,15 +101,12 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png'):
         print("Warning: Extra data, truncating")
         data = data[:expected_size]
 
-    # FLUKA stores as A(ix, iy, iz) with iz varying fastest
-    # Reshape using Fortran order to match FLUKA's column-major storage
-    # Actually, the format string says A(ix,iy,iz) which means:
-    # - First all iz for ix=0,iy=0
-    # - Then all iz for ix=1,iy=0
-    # - etc.
-    # This is actually C-order for (nx, ny, nz) where last index varies fastest
+    # FLUKA stores as A(ix, iy, iz) in Fortran column-major order
+    # This means ix varies FASTEST, then iy, then iz (slowest)
+    # So: A(1,1,1), A(2,1,1), ..., A(nx,1,1), A(1,1,2), A(2,1,2), ...
+    # Use Fortran order in reshape to match this storage
 
-    data_3d = data.reshape((nx, ny, nz))
+    data_3d = data.reshape((nx, ny, nz), order='F')
 
     # For XZ projection with ny=1, just take the slice
     data_2d = data_3d[:, 0, :]  # Shape: (nx, nz) = (100, 200)
