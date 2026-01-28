@@ -4,7 +4,9 @@ Plot energy deposition from FLUKA USRBIN output.
 Reads ASCII output from usbrea conversion of USRBIN binary files.
 
 Usage:
-    python3 plot_edep.py [output_directory]
+    python3 plot_edep.py [output_directory]           # Single plot
+    python3 plot_edep.py --scan                       # Energy scan mode
+    python3 plot_edep.py --scan --energies 0.1,1,10   # Custom energies
 
 If no directory specified, uses output/latest symlink.
 Energy is auto-detected from run_info.txt metadata.
@@ -16,6 +18,10 @@ import matplotlib.colors as colors
 import os
 import sys
 import re
+import argparse
+import subprocess
+import csv
+from datetime import datetime
 
 
 def read_run_info(output_dir):
@@ -99,8 +105,58 @@ def read_usrbin_ascii(filename):
     return np.array(data_values), header_info
 
 
-def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_mev=1.0, neutron_lib=''):
-    """Create energy deposition plot."""
+def compute_total_energy(data, header):
+    """
+    Compute total energy deposition and statistical error.
+
+    Returns:
+        total: Total energy deposition (GeV/primary)
+        error: Statistical error estimate (GeV/primary)
+    """
+    nx = header.get('nx', 100)
+    ny = header.get('ny', 1)
+    nz = header.get('nz', 200)
+    xmin = header.get('xmin', -100)
+    xmax = header.get('xmax', 100)
+    ymin = header.get('ymin', -100)
+    ymax = header.get('ymax', 100)
+    zmin = header.get('zmin', -5)
+    zmax = header.get('zmax', 395)
+
+    expected_size = nx * ny * nz
+    if len(data) < expected_size:
+        data = np.pad(data, (0, expected_size - len(data)))
+    elif len(data) > expected_size:
+        data = data[:expected_size]
+
+    # Compute bin volumes (cm^3)
+    dx = (xmax - xmin) / nx
+    dy = (ymax - ymin) / ny
+    dz = (zmax - zmin) / nz
+    bin_volume = dx * dy * dz
+
+    # Data is in GeV/cm³/primary, multiply by volume to get GeV/primary
+    total = np.sum(data) * bin_volume
+
+    # Estimate statistical error as sqrt(sum of squares) * volume
+    # This is a simplified estimate; FLUKA provides proper errors in separate files
+    # For now, use Poisson-like estimate: error ~ sqrt(N) / N * total
+    nonzero_bins = np.sum(data > 0)
+    if nonzero_bins > 0:
+        error = total / np.sqrt(nonzero_bins)
+    else:
+        error = 0.0
+
+    return total, error
+
+
+def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_mev=1.0, neutron_lib='', show_plot=True):
+    """Create energy deposition plot.
+
+    Returns:
+        total_energy: Total energy deposited (GeV/primary)
+        error: Statistical error estimate (GeV/primary)
+    """
 
     nx = header.get('nx', 100)
     ny = header.get('ny', 1)
@@ -145,19 +201,17 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
     # So we need to transpose: C should be (nz, nx) for Z on vertical, X on horizontal
     plot_data = data_2d.T  # Now shape (nz, nx)
 
-    # Find data range for non-zero values
-    nonzero_data = plot_data[plot_data > 0]
-    if len(nonzero_data) > 0:
-        vmin = nonzero_data.min()
-        vmax = nonzero_data.max()
-    else:
-        vmin, vmax = 1e-12, 1e-6
+    # Fixed color axis limits
+    vmin, vmax = 1e-12, 1e-6
 
     # Set floor for log scale - zeros become minimum value
-    vmin = max(vmin, vmax / 1e6)
     plot_data_floored = np.where(plot_data <= 0, vmin, plot_data)
 
-    print(f"Plot range: {vmin:.2e} to {vmax:.2e}")
+    # Report actual data range for reference
+    nonzero_data = plot_data[plot_data > 0]
+    if len(nonzero_data) > 0:
+        print(f"Data range: {nonzero_data.min():.2e} to {nonzero_data.max():.2e}")
+    print(f"Plot range (fixed): {vmin:.2e} to {vmax:.2e}")
 
     # Use log scale
     norm = colors.LogNorm(vmin=vmin, vmax=vmax)
@@ -187,52 +241,296 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
     plt.tight_layout()
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
-    plt.show()
+    if show_plot:
+        plt.show()
+    plt.close()
+
+    # Compute total energy deposition
+    total_energy, error = compute_total_energy(data, header)
+    return total_energy, error
 
 
-def main():
-    # Parse command line arguments
-    # Usage: plot_edep.py [output_directory]
+def run_simulation(energy_mev, cycles=5, neutron_lib='JEFF'):
+    """Run FLUKA simulation for a given energy."""
+    print(f"\n{'='*60}")
+    print(f"Running simulation for {energy_mev} MeV neutrons ({neutron_lib})")
+    print(f"{'='*60}")
 
-    # Default to output/latest symlink
-    if len(sys.argv) > 1:
-        output_dir = sys.argv[1]
-    else:
-        output_dir = './output/latest'
+    cmd = ['./run_fluka.sh', str(cycles), str(energy_mev), neutron_lib]
+    result = subprocess.run(cmd, capture_output=False)
 
+    if result.returncode != 0:
+        print(f"WARNING: Simulation for {energy_mev} MeV may have failed")
+        return None
+
+    # Find the output directory (most recent with this energy)
+    output_base = './output'
+    latest_dir = None
+    latest_time = 0
+
+    for dirname in os.listdir(output_base):
+        if f'{energy_mev}MeV' in dirname and dirname != 'latest':
+            dir_path = os.path.join(output_base, dirname)
+            mtime = os.path.getmtime(dir_path)
+            if mtime > latest_time:
+                latest_time = mtime
+                latest_dir = dir_path
+
+    return latest_dir
+
+
+def process_single_output(output_dir, show_plot=True):
+    """Process a single output directory and return energy deposition data."""
     # Resolve symlink to actual path
     if os.path.islink(output_dir):
         link_target = os.readlink(output_dir)
         output_dir = os.path.join(os.path.dirname(output_dir), link_target)
 
-    print("FLUKA Energy Deposition Visualization")
-    print("=" * 50)
-    print(f"Output directory: {output_dir}")
+    print(f"\nProcessing: {output_dir}")
 
     # Read run metadata for energy and library
     run_info = read_run_info(output_dir)
     energy_mev = float(run_info.get('energy_mev', 1.0))
     neutron_lib = run_info.get('neutron_library', '')
-    print(f"Neutron energy: {energy_mev} MeV (from metadata)")
-    if neutron_lib:
-        print(f"Neutron library: {neutron_lib}")
 
     # Look for the XZ ASCII file
     xz_file = os.path.join(output_dir, 'edep_xz.dat')
 
-    if os.path.exists(xz_file):
-        print(f"Reading: {xz_file}")
-        data, header = read_usrbin_ascii(xz_file)
-
-        if len(data) > 0:
-            # Save plot in the output directory
-            plot_file = os.path.join(output_dir, 'edep_xz_plot.png')
-            plot_energy_deposition(data, header, output_file=plot_file, energy_mev=energy_mev, neutron_lib=neutron_lib)
-        else:
-            print("ERROR: No data read from file")
-    else:
+    if not os.path.exists(xz_file):
         print(f"ERROR: File not found: {xz_file}")
-        print("Run the FLUKA simulation first with: ./run_fluka.sh")
+        return None
+
+    data, header = read_usrbin_ascii(xz_file)
+
+    if len(data) == 0:
+        print("ERROR: No data read from file")
+        return None
+
+    # Save plot in the output directory
+    plot_file = os.path.join(output_dir, 'edep_xz_plot.png')
+    total_energy, error = plot_energy_deposition(
+        data, header,
+        output_file=plot_file,
+        energy_mev=energy_mev,
+        neutron_lib=neutron_lib,
+        show_plot=show_plot
+    )
+
+    return {
+        'energy_mev': energy_mev,
+        'neutron_lib': neutron_lib,
+        'total_edep': total_energy,
+        'error': error,
+        'output_dir': output_dir
+    }
+
+
+def plot_energy_scan_summary(results, output_file='energy_scan_summary.png', neutron_lib=''):
+    """Create summary plot of total energy deposition vs neutron energy."""
+    energies = [r['energy_mev'] for r in results]
+    totals = [r['total_edep'] for r in results]
+    errors = [r['error'] for r in results]
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    ax.errorbar(energies, totals, yerr=errors, fmt='o-', capsize=5,
+                markersize=8, linewidth=2, color='blue', ecolor='red',
+                label=f'Total Energy Deposition ({neutron_lib})')
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('Neutron Energy (MeV)', fontsize=12)
+    ax.set_ylabel('Total Energy Deposited (GeV/primary)', fontsize=12)
+    lib_str = f' [{neutron_lib}]' if neutron_lib else ''
+    ax.set_title(f'Energy Deposition vs Neutron Energy{lib_str}\nBorated Polyethylene', fontsize=14)
+    ax.grid(True, which='both', linestyle='--', alpha=0.7)
+    ax.legend(loc='best', fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    print(f"\nSummary plot saved to: {output_file}")
+    plt.show()
+    plt.close()
+
+
+def write_csv_results(results, output_file='energy_scan_results.csv', neutron_lib=''):
+    """Write energy scan results to CSV file."""
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['# Energy scan results'])
+        writer.writerow([f'# Neutron library: {neutron_lib}'])
+        writer.writerow([f'# Generated: {datetime.now().isoformat()}'])
+        writer.writerow([])
+        writer.writerow(['energy_mev', 'total_edep_gev', 'stat_error_gev', 'relative_error'])
+
+        for r in results:
+            rel_error = r['error'] / r['total_edep'] if r['total_edep'] > 0 else 0
+            writer.writerow([
+                r['energy_mev'],
+                f"{r['total_edep']:.6e}",
+                f"{r['error']:.6e}",
+                f"{rel_error:.4f}"
+            ])
+
+    print(f"CSV results saved to: {output_file}")
+
+
+def energy_scan_mode(energies, cycles=5, neutron_lib='JEFF', run_simulations=True):
+    """
+    Run energy scan: simulate multiple energies and create summary plots.
+
+    Args:
+        energies: List of neutron energies in MeV
+        cycles: Number of FLUKA cycles per energy
+        neutron_lib: Neutron library to use (JEFF, ENDF, TENDL)
+        run_simulations: If True, run FLUKA simulations; if False, use existing outputs
+    """
+    print("="*60)
+    print("FLUKA Energy Scan Mode")
+    print("="*60)
+    print(f"Energies: {energies} MeV")
+    print(f"Neutron library: {neutron_lib}")
+    print(f"Cycles per energy: {cycles}")
+    print(f"Run simulations: {run_simulations}")
+
+    results = []
+
+    for energy in energies:
+        if run_simulations:
+            output_dir = run_simulation(energy, cycles=cycles, neutron_lib=neutron_lib)
+            if output_dir is None:
+                print(f"Skipping {energy} MeV due to simulation failure")
+                continue
+        else:
+            # Find existing output for this energy
+            output_base = './output'
+            output_dir = None
+            latest_time = 0
+
+            for dirname in os.listdir(output_base):
+                if f'{energy}MeV' in dirname and neutron_lib in dirname and dirname != 'latest':
+                    dir_path = os.path.join(output_base, dirname)
+                    mtime = os.path.getmtime(dir_path)
+                    if mtime > latest_time:
+                        latest_time = mtime
+                        output_dir = dir_path
+
+            if output_dir is None:
+                print(f"No existing output found for {energy} MeV, skipping")
+                continue
+
+        result = process_single_output(output_dir, show_plot=False)
+        if result:
+            results.append(result)
+            print(f"  {energy} MeV: Total E_dep = {result['total_edep']:.4e} ± {result['error']:.4e} GeV/primary")
+
+    if not results:
+        print("ERROR: No results to plot")
+        return
+
+    # Sort results by energy
+    results.sort(key=lambda x: x['energy_mev'])
+
+    # Create timestamp for output files
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    scan_dir = f'./output/scan_{timestamp}_{neutron_lib}'
+    os.makedirs(scan_dir, exist_ok=True)
+
+    # Write CSV results
+    csv_file = os.path.join(scan_dir, f'energy_scan_{neutron_lib}.csv')
+    write_csv_results(results, csv_file, neutron_lib)
+
+    # Create summary plot
+    summary_file = os.path.join(scan_dir, f'energy_scan_summary_{neutron_lib}.png')
+    plot_energy_scan_summary(results, summary_file, neutron_lib)
+
+    print(f"\nEnergy scan complete. Results in: {scan_dir}")
+
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Plot energy deposition from FLUKA USRBIN output',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python3 plot_edep.py                           # Plot latest output
+  python3 plot_edep.py output/20240101_120000    # Plot specific output
+  python3 plot_edep.py --scan                    # Run energy scan (default energies)
+  python3 plot_edep.py --scan --energies 0.1,1,10  # Custom energies
+  python3 plot_edep.py --scan --no-run           # Plot existing outputs only
+        """
+    )
+
+    parser.add_argument('output_dir', nargs='?', default='./output/latest',
+                        help='Output directory to plot (default: ./output/latest)')
+    parser.add_argument('--scan', action='store_true',
+                        help='Enable energy scan mode')
+    parser.add_argument('--energies', type=str, default='0.01,0.1,1,10,100,1000',
+                        help='Comma-separated list of energies in MeV (default: 0.01,0.1,1,10,100,1000)')
+    parser.add_argument('--cycles', type=int, default=5,
+                        help='Number of FLUKA cycles per energy (default: 5)')
+    parser.add_argument('--library', type=str, default='JEFF',
+                        choices=['JEFF', 'ENDF', 'TENDL'],
+                        help='Neutron library to use (default: JEFF)')
+    parser.add_argument('--no-run', action='store_true',
+                        help='Do not run simulations, use existing outputs only')
+
+    args = parser.parse_args()
+
+    if args.scan:
+        # Energy scan mode
+        energies = [float(e.strip()) for e in args.energies.split(',')]
+        energy_scan_mode(
+            energies,
+            cycles=args.cycles,
+            neutron_lib=args.library,
+            run_simulations=not args.no_run
+        )
+    else:
+        # Single plot mode
+        output_dir = args.output_dir
+
+        # Resolve symlink to actual path
+        if os.path.islink(output_dir):
+            link_target = os.readlink(output_dir)
+            output_dir = os.path.join(os.path.dirname(output_dir), link_target)
+
+        print("FLUKA Energy Deposition Visualization")
+        print("=" * 50)
+        print(f"Output directory: {output_dir}")
+
+        # Read run metadata for energy and library
+        run_info = read_run_info(output_dir)
+        energy_mev = float(run_info.get('energy_mev', 1.0))
+        neutron_lib = run_info.get('neutron_library', '')
+        print(f"Neutron energy: {energy_mev} MeV (from metadata)")
+        if neutron_lib:
+            print(f"Neutron library: {neutron_lib}")
+
+        # Look for the XZ ASCII file
+        xz_file = os.path.join(output_dir, 'edep_xz.dat')
+
+        if os.path.exists(xz_file):
+            print(f"Reading: {xz_file}")
+            data, header = read_usrbin_ascii(xz_file)
+
+            if len(data) > 0:
+                # Save plot in the output directory
+                plot_file = os.path.join(output_dir, 'edep_xz_plot.png')
+                total, error = plot_energy_deposition(
+                    data, header,
+                    output_file=plot_file,
+                    energy_mev=energy_mev,
+                    neutron_lib=neutron_lib
+                )
+                print(f"\nTotal energy deposition: {total:.4e} ± {error:.4e} GeV/primary")
+            else:
+                print("ERROR: No data read from file")
+        else:
+            print(f"ERROR: File not found: {xz_file}")
+            print("Run the FLUKA simulation first with: ./run_fluka.sh")
 
 
 if __name__ == '__main__':
