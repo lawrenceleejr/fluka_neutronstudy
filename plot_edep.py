@@ -493,10 +493,10 @@ Examples:
         """
     )
 
-    parser.add_argument('output_dir', nargs='?', default='./output/latest',
-                        help='Output directory to plot (default: ./output/latest)')
     parser.add_argument('--scan', action='store_true',
                         help='Enable energy scan mode')
+    parser.add_argument('output_dir', nargs='?', default='./output/latest',
+                        help='Output directory to plot (default: ./output/latest)')
     parser.add_argument('--energies', type=str, default='0.01,0.1,1,10,100,1000',
                         help='Comma-separated list of energies in MeV (default: 0.01,0.1,1,10,100,1000)')
     parser.add_argument('--cycles', type=int, default=5,
