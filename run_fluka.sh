@@ -114,28 +114,37 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
                 echo "${INPUT_BASE}${i}_fort.21" >> usrbin21_list.txt
             fi
         done
+        echo "" >> usrbin21_list.txt
+        echo "usrbin21_list.txt_sum" >> usrbin21_list.txt
         cat usrbin21_list.txt
 
         $FLUPRO/bin/usbsuw < usrbin21_list.txt
         if [ -f usrbin21_list.txt_sum ]; then
             mv usrbin21_list.txt_sum edep_xz.bnn
         fi
+        echo "done 21"
     fi
 
     # For unit 22 (3D)
     if ls ${INPUT_BASE}001_fort.22 1>/dev/null 2>&1; then
+        ls ${INPUT_BASE}001_fort.22
         echo "${INPUT_BASE}001_fort.22" > usrbin22_list.txt
         for i in $(seq -f "%03g" 2 $CYCLES); do
             if [ -f "${INPUT_BASE}${i}_fort.22" ]; then
                 echo "${INPUT_BASE}${i}_fort.22" >> usrbin22_list.txt
             fi
         done
+        cat usrbin22_list.txt
+
+        echo "" >> usrbin22_list.txt
+        echo "usrbin22_list.txt_sum" >> usrbin22_list.txt
 
         $FLUPRO/bin/usbsuw < usrbin22_list.txt
         if [ -f usrbin22_list.txt_sum ]; then
             mv usrbin22_list.txt_sum edep_3d.bnn
         fi
     fi
+    echo "done 22"
 
     # Convert binary USRBIN to ASCII using usbrea
     echo "Converting to ASCII format..."
