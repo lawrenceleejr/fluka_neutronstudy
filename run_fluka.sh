@@ -13,17 +13,29 @@ WORK_DIR="/fluka_work"
 # Convert MeV to GeV for FLUKA
 ENERGY_GEV=$(echo "scale=6; $ENERGY_MEV / 1000" | bc)
 
+# Create timestamped output directory with energy info
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+OUTPUT_DIR="output/${TIMESTAMP}_${ENERGY_MEV}MeV"
+mkdir -p "$OUTPUT_DIR"
+
 echo "============================================"
 echo "FLUKA Neutron Capture Simulation"
 echo "============================================"
 echo "Input file: $INPUT_FILE"
 echo "Cycles: $CYCLES"
 echo "Neutron energy: $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
+echo "Output directory: $OUTPUT_DIR"
 echo "Docker image: $DOCKER_IMAGE"
 echo ""
 
-# Create output directory
-mkdir -p output
+# Save run metadata
+cat > "$OUTPUT_DIR/run_info.txt" << EOF
+energy_mev=$ENERGY_MEV
+energy_gev=$ENERGY_GEV
+cycles=$CYCLES
+timestamp=$TIMESTAMP
+input_file=$INPUT_FILE
+EOF
 
 # Run FLUKA simulation in Docker
 echo "Starting FLUKA simulation..."
@@ -79,6 +91,7 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     CYCLES='"$CYCLES"'
     ENERGY_GEV='"$ENERGY_GEV"'
     ENERGY_MEV='"$ENERGY_MEV"'
+    OUTPUT_DIR='"$OUTPUT_DIR"'
 
     # Copy input file to working directory
     mkdir -p /fluka_work
@@ -107,10 +120,10 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
         echo "--- .log file ---"
         cat ${INPUT_BASE}001.log 2>/dev/null || echo "No .log file"
         # Copy whatever we have
-        mkdir -p /data/output
-        cp -f *.out /data/output/ 2>/dev/null || true
-        cp -f *.err /data/output/ 2>/dev/null || true
-        cp -f *.log /data/output/ 2>/dev/null || true
+        mkdir -p /data/$OUTPUT_DIR
+        cp -f *.out /data/$OUTPUT_DIR/ 2>/dev/null || true
+        cp -f *.err /data/$OUTPUT_DIR/ 2>/dev/null || true
+        cp -f *.log /data/$OUTPUT_DIR/ 2>/dev/null || true
         exit 1
     }
 
@@ -172,22 +185,26 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     fi
 
     # Copy all outputs back to data directory
-    mkdir -p /data/output
-    cp -f *.bnn /data/output/ 2>/dev/null || true
-    cp -f *.dat /data/output/ 2>/dev/null || true
-    cp -f *.out /data/output/ 2>/dev/null || true
-    cp -f *.log /data/output/ 2>/dev/null || true
-    cp -f *_fort.* /data/output/ 2>/dev/null || true
-    cp -f *.err /data/output/ 2>/dev/null || true
+    mkdir -p /data/$OUTPUT_DIR
+    cp -f *.bnn /data/$OUTPUT_DIR/ 2>/dev/null || true
+    cp -f *.dat /data/$OUTPUT_DIR/ 2>/dev/null || true
+    cp -f *.out /data/$OUTPUT_DIR/ 2>/dev/null || true
+    cp -f *.log /data/$OUTPUT_DIR/ 2>/dev/null || true
+    cp -f *.err /data/$OUTPUT_DIR/ 2>/dev/null || true
 
     echo ""
-    echo "Output files copied to /data/output/"
-    ls -la /data/output/
+    echo "Output files copied to /data/$OUTPUT_DIR/"
+    ls -la /data/$OUTPUT_DIR/
 '
+
+# Create/update symlink to latest output
+rm -f output/latest
+ln -s "$(basename "$OUTPUT_DIR")" output/latest
 
 echo ""
 echo "============================================"
 echo "Simulation finished!"
-echo "Output files are in ./output/"
+echo "Output files are in: $OUTPUT_DIR"
+echo "Symlink created: output/latest -> $(basename "$OUTPUT_DIR")"
 echo "Run: python3 plot_edep.py to visualize results"
 echo "============================================"

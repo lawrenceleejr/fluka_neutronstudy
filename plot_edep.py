@@ -5,6 +5,9 @@ Reads ASCII output from usbrea conversion of USRBIN binary files.
 
 Usage:
     python3 plot_edep.py [output_directory]
+
+If no directory specified, uses output/latest symlink.
+Energy is auto-detected from run_info.txt metadata.
 """
 
 import numpy as np
@@ -13,6 +16,22 @@ import matplotlib.colors as colors
 import os
 import sys
 import re
+
+
+def read_run_info(output_dir):
+    """Read run metadata from run_info.txt"""
+    info = {}
+    info_file = os.path.join(output_dir, 'run_info.txt')
+
+    if os.path.exists(info_file):
+        with open(info_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    info[key.strip()] = value.strip()
+
+    return info
 
 
 def read_usrbin_ascii(filename):
@@ -114,11 +133,9 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
     print(f"2D data shape: {data_2d.shape}")
     print(f"Data range: {data_2d.min():.2e} to {data_2d.max():.2e}")
 
-    # Create coordinate arrays for bin centers
+    # Create coordinate arrays for bin edges
     x = np.linspace(xmin, xmax, nx + 1)
     z = np.linspace(zmin, zmax, nz + 1)
-    x_centers = 0.5 * (x[:-1] + x[1:])
-    z_centers = 0.5 * (z[:-1] + z[1:])
 
     fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -174,22 +191,27 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
 
 def main():
     # Parse command line arguments
-    # Usage: plot_edep.py [output_directory] [energy_MeV]
-    output_dir = './output'
-    energy_mev = 1.0
+    # Usage: plot_edep.py [output_directory]
 
+    # Default to output/latest symlink
     if len(sys.argv) > 1:
         output_dir = sys.argv[1]
-    if len(sys.argv) > 2:
-        try:
-            energy_mev = float(sys.argv[2])
-        except ValueError:
-            pass
+    else:
+        output_dir = './output/latest'
+
+    # Resolve symlink to actual path
+    if os.path.islink(output_dir):
+        link_target = os.readlink(output_dir)
+        output_dir = os.path.join(os.path.dirname(output_dir), link_target)
 
     print("FLUKA Energy Deposition Visualization")
     print("=" * 50)
     print(f"Output directory: {output_dir}")
-    print(f"Neutron energy: {energy_mev} MeV")
+
+    # Read run metadata for energy
+    run_info = read_run_info(output_dir)
+    energy_mev = float(run_info.get('energy_mev', 1.0))
+    print(f"Neutron energy: {energy_mev} MeV (from metadata)")
 
     # Look for the XZ ASCII file
     xz_file = os.path.join(output_dir, 'edep_xz.dat')
@@ -199,7 +221,9 @@ def main():
         data, header = read_usrbin_ascii(xz_file)
 
         if len(data) > 0:
-            plot_energy_deposition(data, header, energy_mev=energy_mev)
+            # Save plot in the output directory
+            plot_file = os.path.join(output_dir, 'edep_xz_plot.png')
+            plot_energy_deposition(data, header, output_file=plot_file, energy_mev=energy_mev)
         else:
             print("ERROR: No data read from file")
     else:
