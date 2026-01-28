@@ -1,19 +1,24 @@
 #!/bin/bash
 # Script to run FLUKA neutron simulation in Docker container
-# Usage: ./run_fluka.sh [number_of_cycles]
+# Usage: ./run_fluka.sh [number_of_cycles] [energy_MeV]
 
 set -e
 
 CYCLES=${1:-5}
+ENERGY_MEV=${2:-1}  # Default 1 MeV
 INPUT_FILE="neutron_bpe.inp"
 DOCKER_IMAGE="fluka:ggi"
 WORK_DIR="/fluka_work"
+
+# Convert MeV to GeV for FLUKA
+ENERGY_GEV=$(echo "scale=6; $ENERGY_MEV / 1000" | bc)
 
 echo "============================================"
 echo "FLUKA Neutron Capture Simulation"
 echo "============================================"
 echo "Input file: $INPUT_FILE"
 echo "Cycles: $CYCLES"
+echo "Neutron energy: $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
 echo "Docker image: $DOCKER_IMAGE"
 echo ""
 
@@ -72,11 +77,20 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     INPUT_FILE="neutron_bpe.inp"
     INPUT_BASE="${INPUT_FILE%.inp}"
     CYCLES='"$CYCLES"'
+    ENERGY_GEV='"$ENERGY_GEV"'
+    ENERGY_MEV='"$ENERGY_MEV"'
 
     # Copy input file to working directory
     mkdir -p /fluka_work
     cd /fluka_work
     cp /data/$INPUT_FILE .
+
+    # Update neutron energy in input file
+    # BEAM card format: BEAM energy ... NEUTRON (energy in GeV)
+    # Use printf to format the energy value properly for FLUKA fixed format
+    ENERGY_STR=$(printf "%10.4E" $ENERGY_GEV)
+    sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE
+    echo "Set neutron energy to $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
 
     echo "FLUKA path: $FLUPRO"
     echo "Running simulation with rfluka..."

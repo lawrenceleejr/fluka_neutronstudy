@@ -80,7 +80,7 @@ def read_usrbin_ascii(filename):
     return np.array(data_values), header_info
 
 
-def plot_energy_deposition(data, header, output_file='edep_xz_plot.png'):
+def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_mev=1.0):
     """Create energy deposition plot."""
 
     nx = header.get('nx', 100)
@@ -154,13 +154,13 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png'):
 
     ax.set_xlabel('X (cm)', fontsize=12)
     ax.set_ylabel('Z (cm)', fontsize=12)
-    ax.set_title('Energy Deposition: 1 MeV Neutron in Borated Polyethylene\n(XZ Projection)',
+    ax.set_title(f'Energy Deposition: {energy_mev} MeV Neutron in Borated Polyethylene\n(XZ Projection)',
                  fontsize=14)
 
     # Add neutron source indicator at center of Z range
     z_center = (zmin + zmax) / 2
     arrow_len = (zmax - zmin) * 0.05
-    ax.plot(0, z_center, 'g^', markersize=15, label='Neutron source (1 MeV)', zorder=10)
+    ax.plot(0, z_center, 'g^', markersize=15, label=f'Neutron source ({energy_mev} MeV)', zorder=10)
     ax.arrow(0, z_center + arrow_len*0.5, 0, arrow_len, head_width=2, head_length=arrow_len*0.3, fc='green', ec='green', zorder=10)
 
     ax.legend(loc='upper right', fontsize=10)
@@ -173,14 +173,23 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png'):
 
 
 def main():
-    # Determine output directory
+    # Parse command line arguments
+    # Usage: plot_edep.py [output_directory] [energy_MeV]
+    output_dir = './output'
+    energy_mev = 1.0
+
     if len(sys.argv) > 1:
         output_dir = sys.argv[1]
-    else:
-        output_dir = './output'
+    if len(sys.argv) > 2:
+        try:
+            energy_mev = float(sys.argv[2])
+        except ValueError:
+            pass
 
     print("FLUKA Energy Deposition Visualization")
     print("=" * 50)
+    print(f"Output directory: {output_dir}")
+    print(f"Neutron energy: {energy_mev} MeV")
 
     # Look for the XZ ASCII file
     xz_file = os.path.join(output_dir, 'edep_xz.dat')
@@ -190,7 +199,7 @@ def main():
         data, header = read_usrbin_ascii(xz_file)
 
         if len(data) > 0:
-            plot_energy_deposition(data, header)
+            plot_energy_deposition(data, header, energy_mev=energy_mev)
         else:
             print("ERROR: No data read from file")
     else:
