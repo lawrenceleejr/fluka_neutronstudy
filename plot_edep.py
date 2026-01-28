@@ -105,13 +105,22 @@ def read_usrbin_ascii(filename):
     return np.array(data_values), header_info
 
 
-def compute_total_energy(data, header):
+def compute_total_energy(data, header, cycles=1):
     """
-    Compute total energy deposition and statistical error.
+    Compute total energy deposition and statistical error on the mean.
+
+    FLUKA's usbsuw merges cycles and provides mean values per primary.
+    The statistical error on the mean is estimated using the spread in
+    bin values and scales as 1/sqrt(cycles).
+
+    Args:
+        data: Energy deposition data array
+        header: Header info with grid dimensions
+        cycles: Number of FLUKA cycles (for error estimation)
 
     Returns:
-        total: Total energy deposition (GeV/primary)
-        error: Statistical error estimate (GeV/primary)
+        total: Total energy deposition (GeV/primary) - mean value
+        error: Statistical error on the mean (GeV/primary)
     """
     nx = header.get('nx', 100)
     ny = header.get('ny', 1)
@@ -136,26 +145,45 @@ def compute_total_energy(data, header):
     bin_volume = dx * dy * dz
 
     # Data is in GeV/cm³/primary, multiply by volume to get GeV/primary
+    # This is already the mean value (averaged over all primaries by FLUKA)
     total = np.sum(data) * bin_volume
 
-    # Estimate statistical error as sqrt(sum of squares) * volume
-    # This is a simplified estimate; FLUKA provides proper errors in separate files
-    # For now, use Poisson-like estimate: error ~ sqrt(N) / N * total
-    nonzero_bins = np.sum(data > 0)
-    if nonzero_bins > 0:
-        error = total / np.sqrt(nonzero_bins)
+    # Estimate statistical error on the mean
+    # For Monte Carlo, error scales as 1/sqrt(N) where N = cycles * primaries_per_cycle
+    # Using relative standard deviation of non-zero bins as proxy for spread
+    nonzero_data = data[data > 0]
+    if len(nonzero_data) > 1 and total > 0:
+        # Relative standard deviation of bin values
+        rel_std = np.std(nonzero_data) / np.mean(nonzero_data)
+        # Error on sum scales with sqrt(N_bins), error on mean scales with 1/sqrt(cycles)
+        # Combined estimate: rel_error ~ rel_std / sqrt(N_bins) / sqrt(cycles)
+        n_bins = len(nonzero_data)
+        rel_error = rel_std / np.sqrt(n_bins) / np.sqrt(cycles)
+        error = total * rel_error
+    elif total > 0:
+        # Fallback: assume ~10% relative error scaled by cycles
+        error = total * 0.1 / np.sqrt(cycles)
     else:
         error = 0.0
 
     return total, error
 
 
-def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_mev=1.0, neutron_lib='', show_plot=True):
+def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_mev=1.0, neutron_lib='', show_plot=True, cycles=1):
     """Create energy deposition plot.
 
+    Args:
+        data: Energy deposition data array
+        header: Header info with grid dimensions
+        output_file: Path to save the plot
+        energy_mev: Neutron energy in MeV (for title)
+        neutron_lib: Neutron library name (for title)
+        show_plot: Whether to display the plot interactively
+        cycles: Number of FLUKA cycles (for error estimation)
+
     Returns:
-        total_energy: Total energy deposited (GeV/primary)
-        error: Statistical error estimate (GeV/primary)
+        total_energy: Total energy deposited (GeV/primary) - mean value
+        error: Statistical error on the mean (GeV/primary)
     """
 
     nx = header.get('nx', 100)
@@ -245,8 +273,8 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
         plt.show()
     plt.close()
 
-    # Compute total energy deposition
-    total_energy, error = compute_total_energy(data, header)
+    # Compute total energy deposition (mean value and error on mean)
+    total_energy, error = compute_total_energy(data, header, cycles=cycles)
     return total_energy, error
 
 
@@ -288,10 +316,11 @@ def process_single_output(output_dir, show_plot=True):
 
     print(f"\nProcessing: {output_dir}")
 
-    # Read run metadata for energy and library
+    # Read run metadata for energy, library, and cycles
     run_info = read_run_info(output_dir)
     energy_mev = float(run_info.get('energy_mev', 1.0))
     neutron_lib = run_info.get('neutron_library', '')
+    cycles = int(run_info.get('cycles', 1))
 
     # Look for the XZ ASCII file
     xz_file = os.path.join(output_dir, 'edep_xz.dat')
@@ -313,7 +342,8 @@ def process_single_output(output_dir, show_plot=True):
         output_file=plot_file,
         energy_mev=energy_mev,
         neutron_lib=neutron_lib,
-        show_plot=show_plot
+        show_plot=show_plot,
+        cycles=cycles
     )
 
     return {
@@ -501,11 +531,13 @@ Examples:
         print("=" * 50)
         print(f"Output directory: {output_dir}")
 
-        # Read run metadata for energy and library
+        # Read run metadata for energy, library, and cycles
         run_info = read_run_info(output_dir)
         energy_mev = float(run_info.get('energy_mev', 1.0))
         neutron_lib = run_info.get('neutron_library', '')
+        cycles = int(run_info.get('cycles', 1))
         print(f"Neutron energy: {energy_mev} MeV (from metadata)")
+        print(f"Cycles: {cycles}")
         if neutron_lib:
             print(f"Neutron library: {neutron_lib}")
 
@@ -523,9 +555,10 @@ Examples:
                     data, header,
                     output_file=plot_file,
                     energy_mev=energy_mev,
-                    neutron_lib=neutron_lib
+                    neutron_lib=neutron_lib,
+                    cycles=cycles
                 )
-                print(f"\nTotal energy deposition: {total:.4e} ± {error:.4e} GeV/primary")
+                print(f"\nTotal energy deposition (mean): {total:.4e} ± {error:.4e} GeV/primary")
             else:
                 print("ERROR: No data read from file")
         else:
