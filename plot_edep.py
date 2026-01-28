@@ -502,8 +502,8 @@ Examples:
     parser.add_argument('--cycles', type=int, default=5,
                         help='Number of FLUKA cycles per energy (default: 5)')
     parser.add_argument('--library', type=str, default='JEFF',
-                        choices=['JEFF', 'ENDF', 'TENDL'],
-                        help='Neutron library to use (default: JEFF)')
+                        choices=['JEFF', 'ENDF', 'JENDL', 'CENDL', 'BROND'],
+                        help='Neutron library: JEFF, ENDF, JENDL, CENDL, BROND (default: JEFF)')
     parser.add_argument('--no-run', action='store_true',
                         help='Do not run simulations, use existing outputs only')
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script to run FLUKA neutron simulation in Docker container
 # Usage: ./run_fluka.sh [number_of_cycles] [energy_MeV] [neutron_library]
-# Available libraries: ENDF, JEFF, TENDL (default: JEFF)
+# Available libraries: JEFF, ENDF, JENDL, CENDL, BROND (default: JEFF)
 
 set -e
 
@@ -60,54 +60,29 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     # Neutron library configuration
     NEUTRON_LIB='"$NEUTRON_LIB"'
 
-    # Set download URL based on library choice
+    # Map library name to FLUKA LOW-PWXS SDUM value
     case "$NEUTRON_LIB" in
         JEFF|jeff)
-            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/jeff33_xsec_fluka4-4.4_20241021.tar.xz"
-            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/jeff33_xsec.tar.xz"
+            PWXS_SDUM="JEFF-3.3"
             ;;
-        TENDL|tendl)
-            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/tendl21_xsec_fluka4-4.4_20241021.tar.xz"
-            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/tendl21_xsec.tar.xz"
+        ENDF|endf)
+            PWXS_SDUM="ENDFB-VIII"
             ;;
-        ENDF|endf|*)
-            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/endf8r0_xsec_fluka4-4.4_20241021.tar.xz"
-            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/endf8r0_xsec.tar.xz"
+        JENDL|jendl)
+            PWXS_SDUM="JENDL-4.0"
+            ;;
+        CENDL|cendl)
+            PWXS_SDUM="CENDL-3.1"
+            ;;
+        BROND|brond)
+            PWXS_SDUM="BROND-3.1"
+            ;;
+        *)
+            echo "Unknown library: $NEUTRON_LIB, defaulting to JEFF-3.3"
+            PWXS_SDUM="JEFF-3.3"
             ;;
     esac
-
-    # Download neutron data if not present
-    NEUTRON_DATA_DIR="$FLUPRO/data/neutron"
-    if [ ! -d "$NEUTRON_DATA_DIR" ]; then
-        echo "Downloading FLUKA pointwise neutron data libraries ($NEUTRON_LIB)..."
-        echo "This may take a few minutes on first run..."
-        mkdir -p "$FLUPRO/data"
-        cd "$FLUPRO/data"
-
-        # Download from FLUKA website
-        wget -q --show-progress "$NEUTRON_URL" -O neutron_data.tar.xz || {
-            echo "Failed to download neutron data. Trying alternative URL..."
-            wget -q --show-progress "$NEUTRON_URL_ALT" -O neutron_data.tar.xz || {
-                echo "ERROR: Could not download neutron data libraries."
-                echo "Please download manually from: https://fluka.cern/download/neutron-data-libraries"
-                exit 1
-            }
-        }
-
-        echo "Extracting neutron data..."
-        tar -xf neutron_data.tar.xz
-        rm neutron_data.tar.xz
-
-        # Find and rename the extracted directory to "neutron"
-        EXTRACTED_DIR=$(ls -d */ 2>/dev/null | head -1)
-        if [ -n "$EXTRACTED_DIR" ] && [ ! -d "neutron" ]; then
-            mv "$EXTRACTED_DIR" neutron
-        fi
-
-        echo "Neutron data ($NEUTRON_LIB) installed successfully."
-    else
-        echo "Neutron data already present."
-    fi
+    echo "Using pointwise neutron library: $PWXS_SDUM"
 
     INPUT_FILE="neutron_bpe.inp"
     INPUT_BASE="${INPUT_FILE%.inp}"
@@ -127,6 +102,14 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     ENERGY_STR=$(printf "%10.4E" $ENERGY_GEV)
     sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE
     echo "Set neutron energy to $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
+
+    # Add LOW-PWXS card to select pointwise neutron library
+    # Remove any existing LOW-PWXS card first, then add the new one before RANDOMIZ
+    sed -i "/^LOW-PWXS/d" $INPUT_FILE
+    # Format: LOW-PWXS with SDUM specifying library (padded to 8 chars)
+    PWXS_CARD=$(printf "LOW-PWXS      1.0       0.0       0.0       0.0       0.0       0.0%-8s" "$PWXS_SDUM")
+    sed -i "/^RANDOMIZ/i $PWXS_CARD" $INPUT_FILE
+    echo "Added LOW-PWXS card for library: $PWXS_SDUM"
 
     echo "FLUKA path: $FLUPRO"
     echo "Running simulation with rfluka..."
