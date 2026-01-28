@@ -99,7 +99,7 @@ def read_usrbin_ascii(filename):
     return np.array(data_values), header_info
 
 
-def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_mev=1.0):
+def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_mev=1.0, neutron_lib=''):
     """Create energy deposition plot."""
 
     nx = header.get('nx', 100)
@@ -171,7 +171,8 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
 
     ax.set_xlabel('X (cm)', fontsize=12)
     ax.set_ylabel('Z (cm)', fontsize=12)
-    ax.set_title(f'Energy Deposition: {energy_mev} MeV Neutron in Borated Polyethylene\n(XZ Projection)',
+    lib_str = f' [{neutron_lib}]' if neutron_lib else ''
+    ax.set_title(f'Energy Deposition: {energy_mev} MeV Neutron in Borated Polyethylene{lib_str}\n(XZ Projection)',
                  fontsize=14)
 
     # Add neutron source indicator at center of Z range
@@ -208,10 +209,13 @@ def main():
     print("=" * 50)
     print(f"Output directory: {output_dir}")
 
-    # Read run metadata for energy
+    # Read run metadata for energy and library
     run_info = read_run_info(output_dir)
     energy_mev = float(run_info.get('energy_mev', 1.0))
+    neutron_lib = run_info.get('neutron_library', '')
     print(f"Neutron energy: {energy_mev} MeV (from metadata)")
+    if neutron_lib:
+        print(f"Neutron library: {neutron_lib}")
 
     # Look for the XZ ASCII file
     xz_file = os.path.join(output_dir, 'edep_xz.dat')
@@ -223,7 +227,7 @@ def main():
         if len(data) > 0:
             # Save plot in the output directory
             plot_file = os.path.join(output_dir, 'edep_xz_plot.png')
-            plot_energy_deposition(data, header, output_file=plot_file, energy_mev=energy_mev)
+            plot_energy_deposition(data, header, output_file=plot_file, energy_mev=energy_mev, neutron_lib=neutron_lib)
         else:
             print("ERROR: No data read from file")
     else:

@@ -1,11 +1,13 @@
 #!/bin/bash
 # Script to run FLUKA neutron simulation in Docker container
-# Usage: ./run_fluka.sh [number_of_cycles] [energy_MeV]
+# Usage: ./run_fluka.sh [number_of_cycles] [energy_MeV] [neutron_library]
+# Available libraries: ENDF, JEFF, TENDL (default: JEFF)
 
 set -e
 
 CYCLES=${1:-5}
 ENERGY_MEV=${2:-1}  # Default 1 MeV
+NEUTRON_LIB=${3:-JEFF}  # Default JEFF
 INPUT_FILE="neutron_bpe.inp"
 DOCKER_IMAGE="fluka:ggi"
 WORK_DIR="/fluka_work"
@@ -13,9 +15,9 @@ WORK_DIR="/fluka_work"
 # Convert MeV to GeV for FLUKA
 ENERGY_GEV=$(echo "scale=6; $ENERGY_MEV / 1000" | bc)
 
-# Create timestamped output directory with energy info
+# Create timestamped output directory with energy and library info
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-OUTPUT_DIR="output/${TIMESTAMP}_${ENERGY_MEV}MeV"
+OUTPUT_DIR="output/${TIMESTAMP}_${ENERGY_MEV}MeV_${NEUTRON_LIB}"
 mkdir -p "$OUTPUT_DIR"
 
 echo "============================================"
@@ -24,6 +26,7 @@ echo "============================================"
 echo "Input file: $INPUT_FILE"
 echo "Cycles: $CYCLES"
 echo "Neutron energy: $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
+echo "Neutron library: $NEUTRON_LIB"
 echo "Output directory: $OUTPUT_DIR"
 echo "Docker image: $DOCKER_IMAGE"
 echo ""
@@ -35,6 +38,7 @@ energy_gev=$ENERGY_GEV
 cycles=$CYCLES
 timestamp=$TIMESTAMP
 input_file=$INPUT_FILE
+neutron_library=$NEUTRON_LIB
 EOF
 
 # Run FLUKA simulation in Docker
@@ -53,18 +57,37 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     export FLUPRO
     export FLUFOR=gfortran
 
+    # Neutron library configuration
+    NEUTRON_LIB='"$NEUTRON_LIB"'
+
+    # Set download URL based on library choice
+    case "$NEUTRON_LIB" in
+        JEFF|jeff)
+            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/jeff33_xsec_fluka4-4.4_20241021.tar.xz"
+            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/jeff33_xsec.tar.xz"
+            ;;
+        TENDL|tendl)
+            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/tendl21_xsec_fluka4-4.4_20241021.tar.xz"
+            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/tendl21_xsec.tar.xz"
+            ;;
+        ENDF|endf|*)
+            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/endf8r0_xsec_fluka4-4.4_20241021.tar.xz"
+            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/endf8r0_xsec.tar.xz"
+            ;;
+    esac
+
     # Download neutron data if not present
     NEUTRON_DATA_DIR="$FLUPRO/data/neutron"
     if [ ! -d "$NEUTRON_DATA_DIR" ]; then
-        echo "Downloading FLUKA pointwise neutron data libraries..."
+        echo "Downloading FLUKA pointwise neutron data libraries ($NEUTRON_LIB)..."
         echo "This may take a few minutes on first run..."
         mkdir -p "$FLUPRO/data"
         cd "$FLUPRO/data"
 
         # Download from FLUKA website
-        wget -q --show-progress https://fluka.cern/download/neutron-data-libraries/endf8r0_xsec_fluka4-4.4_20241021.tar.xz -O neutron_data.tar.xz || {
+        wget -q --show-progress "$NEUTRON_URL" -O neutron_data.tar.xz || {
             echo "Failed to download neutron data. Trying alternative URL..."
-            wget -q --show-progress https://fluka.cern/download/latest/data/endf8r0_xsec.tar.xz -O neutron_data.tar.xz || {
+            wget -q --show-progress "$NEUTRON_URL_ALT" -O neutron_data.tar.xz || {
                 echo "ERROR: Could not download neutron data libraries."
                 echo "Please download manually from: https://fluka.cern/download/neutron-data-libraries"
                 exit 1
@@ -81,7 +104,7 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
             mv "$EXTRACTED_DIR" neutron
         fi
 
-        echo "Neutron data installed successfully."
+        echo "Neutron data ($NEUTRON_LIB) installed successfully."
     else
         echo "Neutron data already present."
     fi
