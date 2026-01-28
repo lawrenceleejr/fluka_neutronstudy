@@ -151,9 +151,11 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png'):
     ax.set_title('Energy Deposition: 1 MeV Neutron in Borated Polyethylene\n(XZ Projection)',
                  fontsize=14)
 
-    # Add neutron source indicator
-    ax.plot(0, 0, 'g^', markersize=15, label='Neutron source (1 MeV)', zorder=10)
-    ax.arrow(0, 0.5, 0, 4, head_width=0.5, head_length=0.5, fc='green', ec='green', zorder=10)
+    # Add neutron source indicator at center of Z range
+    z_center = (zmin + zmax) / 2
+    arrow_len = (zmax - zmin) * 0.05
+    ax.plot(0, z_center, 'g^', markersize=15, label='Neutron source (1 MeV)', zorder=10)
+    ax.arrow(0, z_center + arrow_len*0.5, 0, arrow_len, head_width=2, head_length=arrow_len*0.3, fc='green', ec='green', zorder=10)
 
     ax.legend(loc='upper right', fontsize=10)
     ax.set_aspect('equal')

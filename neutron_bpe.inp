@@ -6,10 +6,10 @@ DEFAULTS                                                              PRECISIO
 *
 GEOBEGIN                                                              COMBNAME
     0    0          Borated polyethylene neutron capture study
-* Bodies - doubled BPE block size (40x40x80 cm)
-RPP blkhole    -200. 200. -200. 200. -200. 200.
-RPP airbox     -100. 100. -100. 100. -100. 100.
-RPP bpeblk     -20. 20. -20. 20. -10. 70.
+* Bodies - 100x100x200 cm BPE block
+RPP blkhole    -500. 500. -500. 500. -500. 500.
+RPP airbox     -200. 200. -200. 200. -100. 300.
+RPP bpeblk     -50. 50. -50. 50. 0. 200.
 END
 * Regions
 BLKHOLE      5 +blkhole -airbox
@@ -29,15 +29,15 @@ ASSIGNMA    BLCKHOLE   BLKHOLE
 ASSIGNMA         AIR  AIRREGIO
 ASSIGNMA     BORPOLY  BPEREGIO
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Beam: 1 MeV neutron at origin going +Z
+* Beam: 1 MeV neutron at center of block (0, 0, 100) going +Z
 BEAM           0.001       0.0       0.0       0.0       0.0       1.0NEUTRON
-BEAMPOS          0.0       0.0       0.0
+BEAMPOS          0.0       0.0     100.0
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Scoring energy deposition - fewer bins (40x80) for clearer visualization
-USRBIN          10.0    ENERGY      -21.      20.0      20.0      70.0EDEP-XZ
-USRBIN         -20.0     -20.0      -10.       40.        1.       80. &
-USRBIN          10.0    ENERGY      -22.      20.0      20.0      70.0EDEP-3D
-USRBIN         -20.0     -20.0      -10.       20.       20.       40. &
+* Scoring energy deposition - 50x100 bins for XZ projection
+USRBIN          10.0    ENERGY      -21.      50.0      50.0     200.0EDEP-XZ
+USRBIN         -50.0     -50.0       0.0       50.        1.      100. &
+USRBIN          10.0    ENERGY      -22.      50.0      50.0     200.0EDEP-3D
+USRBIN         -50.0     -50.0       0.0       25.       25.       50. &
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 RANDOMIZ         1.0
 START        10000.0
