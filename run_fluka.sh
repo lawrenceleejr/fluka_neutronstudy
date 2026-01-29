@@ -60,22 +60,22 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     # Neutron library configuration
     NEUTRON_LIB='"$NEUTRON_LIB"'
 
-    # Map library name to FLUKA LOW-PWXS SDUM value
+    # Map library name to FLUKA LOW-PWXS SDUM value (max 8 characters!)
     case "$NEUTRON_LIB" in
         JEFF|jeff)
             PWXS_SDUM="JEFF-3.3"
             ;;
         ENDF|endf)
-            PWXS_SDUM="ENDFB-VIII"
+            PWXS_SDUM="ENDFB8.0"
             ;;
         JENDL|jendl)
-            PWXS_SDUM="JENDL-4.0"
+            PWXS_SDUM="JENDL4.0"
             ;;
         CENDL|cendl)
-            PWXS_SDUM="CENDL-3.1"
+            PWXS_SDUM="CENDL3.1"
             ;;
         BROND|brond)
-            PWXS_SDUM="BROND-3.1"
+            PWXS_SDUM="BROND3.1"
             ;;
         *)
             echo "Unknown library: $NEUTRON_LIB, defaulting to JEFF-3.3"
@@ -106,8 +106,8 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     # Add LOW-PWXS card to select pointwise neutron library
     # Remove any existing LOW-PWXS card first, then add the new one before RANDOMIZ
     sed -i "/^LOW-PWXS/d" $INPUT_FILE
-    # Format: LOW-PWXS with SDUM specifying library (padded to 8 chars)
-    PWXS_CARD=$(printf "LOW-PWXS      1.0       0.0       0.0       0.0       0.0       0.0%-8s" "$PWXS_SDUM")
+    # FLUKA fixed format: 10-char keyword + 6x10-char WHAT fields + 8-char SDUM = 78 chars
+    PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s" "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "$PWXS_SDUM")
     sed -i "/^RANDOMIZ/i $PWXS_CARD" $INPUT_FILE
     echo "Added LOW-PWXS card for library: $PWXS_SDUM"
 
