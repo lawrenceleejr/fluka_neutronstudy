@@ -29,10 +29,15 @@ PRIMARIES=1000
 NEUTRON_LIB="JEFF"
 OUTPUT_DIR=""
 
-# FLUGG Docker image (user needs to build this)
+# FLUGG Docker image (built from fluka:ggi base)
+# Build with: docker build -f docker/Dockerfile.flugg -t flugg:latest .
 FLUGG_IMAGE="flugg:latest"
+
 # MuColl image for DD4hep conversion
 MUCOLL_IMAGE="gitlab-registry.cern.ch/muon-collider/mucoll-deploy/mucoll:2.8-patch2-el9"
+
+# Base FLUKA image (for fallback if FLUGG not available)
+FLUKA_IMAGE="fluka:ggi"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
