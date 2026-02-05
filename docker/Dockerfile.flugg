@@ -76,58 +76,13 @@ ENV FLUPRO=/usr/local/fluka
 ENV FLUFOR=gfortran
 
 # Build FLUGG interface library
-# FLUGG connects FLUKA physics to Geant4 geometry
-# Note: The exact build process depends on your FLUKA version
-# This section may need adjustment based on your FLUKA distribution
-
 WORKDIR /opt/flugg
 
-# Copy FLUGG source if provided, or use FLUKA's built-in FLUGG
-# For newer FLUKA versions, FLUGG may be included
-# COPY flugg_source/ /opt/flugg/
-
-# Create a simple GDML geometry loader for FLUGG
-RUN cat > /opt/flugg/gdml_loader.cc << 'GDML_LOADER'
-// Simple GDML geometry loader for FLUGG
-// Reads GDML file and makes it available to FLUKA via FLUGG interface
-
-#include "G4GDMLParser.hh"
-#include "G4VPhysicalVolume.hh"
-#include "G4LogicalVolume.hh"
-#include <cstdlib>
-#include <iostream>
-
-G4VPhysicalVolume* gdml_world = nullptr;
-
-extern "C" {
-    // Called by FLUGG to get the world volume
-    G4VPhysicalVolume* get_flugg_world() {
-        if (gdml_world) return gdml_world;
-
-        const char* gdml_file = getenv("FLUGG_GDML");
-        if (!gdml_file) {
-            std::cerr << "ERROR: FLUGG_GDML environment variable not set" << std::endl;
-            return nullptr;
-        }
-
-        std::cout << "FLUGG: Loading GDML geometry from: " << gdml_file << std::endl;
-
-        G4GDMLParser parser;
-        parser.Read(gdml_file);
-        gdml_world = parser.GetWorldVolume();
-
-        if (gdml_world) {
-            std::cout << "FLUGG: Geometry loaded successfully" << std::endl;
-            std::cout << "FLUGG: World volume: " << gdml_world->GetName() << std::endl;
-        }
-
-        return gdml_world;
-    }
-}
-GDML_LOADER
+# Copy GDML loader source file
+COPY docker/gdml_loader.cc /opt/flugg/gdml_loader.cc
 
 # Build the GDML loader library
-RUN source ${G4INSTALL}/bin/geant4.sh && \
+RUN . ${G4INSTALL}/bin/geant4.sh && \
     g++ -shared -fPIC -o libflugg_gdml.so gdml_loader.cc \
         $(geant4-config --cflags) \
         $(geant4-config --libs) \
@@ -137,48 +92,8 @@ ENV LD_LIBRARY_PATH=/opt/flugg:${LD_LIBRARY_PATH}
 
 WORKDIR /flugg_work
 
-# Create wrapper script for FLUGG runs
-RUN cat > /usr/local/bin/flugg_run.sh << 'SCRIPT'
-#!/bin/bash
-# FLUGG runner script
-# Usage: flugg_run.sh <input_file> [cycles]
-#
-# Environment:
-#   FLUGG_GDML - Path to GDML geometry file (required)
-
-INPUT_FILE=$1
-CYCLES=${2:-5}
-
-if [ -z "$INPUT_FILE" ]; then
-    echo "Usage: flugg_run.sh <input_file> [cycles]"
-    echo "Environment: FLUGG_GDML must be set to GDML geometry file"
-    exit 1
-fi
-
-if [ -z "$FLUGG_GDML" ]; then
-    echo "ERROR: FLUGG_GDML environment variable not set"
-    exit 1
-fi
-
-if [ ! -f "$FLUGG_GDML" ]; then
-    echo "ERROR: GDML file not found: $FLUGG_GDML"
-    exit 1
-fi
-
-# Source Geant4 environment
-source /opt/geant4/bin/geant4.sh
-
-export FLUPRO=/usr/local/fluka
-export FLUFOR=gfortran
-export LD_PRELOAD=/opt/flugg/libflugg_gdml.so
-
-echo "FLUGG: Using GDML geometry: $FLUGG_GDML"
-echo "FLUGG: Running with $CYCLES cycles"
-
-INPUT_BASE=${INPUT_FILE%.inp}
-$FLUPRO/bin/rfluka -N0 -M${CYCLES} ${INPUT_BASE}
-SCRIPT
-
+# Copy wrapper script
+COPY docker/flugg_run.sh /usr/local/bin/flugg_run.sh
 RUN chmod +x /usr/local/bin/flugg_run.sh
 
 # Verify installation
