@@ -179,6 +179,22 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     fi
     echo "done 22"
 
+    # For unit 23 (USRBDX - neutron exit spectrum)
+    if ls ${INPUT_BASE}001_fort.23 1>/dev/null 2>&1; then
+        echo "Processing USRBDX output (unit 23)..."
+        echo "${INPUT_BASE}001_fort.23" > usrbdx23_list.txt
+        for i in $(seq -f "%03g" 2 $CYCLES); do
+            if [ -f "${INPUT_BASE}${i}_fort.23" ]; then
+                echo "${INPUT_BASE}${i}_fort.23" >> usrbdx23_list.txt
+            fi
+        done
+        echo "" >> usrbdx23_list.txt
+        echo "neut_exit.bnn" >> usrbdx23_list.txt
+
+        $FLUPRO/bin/usxsuw < usrbdx23_list.txt
+        echo "done 23"
+    fi
+
     # Convert binary USRBIN to ASCII using usbrea
     echo "Converting to ASCII format..."
 
@@ -188,6 +204,11 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
 
     if [ -f edep_3d.bnn ]; then
         echo -e "edep_3d.bnn\nedep_3d.dat\n" | $FLUPRO/bin/usbrea
+    fi
+
+    # Convert USRBDX to ASCII using usxrea
+    if [ -f neut_exit.bnn ]; then
+        echo -e "neut_exit.bnn\nneut_exit.dat\n" | $FLUPRO/bin/usxrea
     fi
 
     # Copy all outputs back to data directory

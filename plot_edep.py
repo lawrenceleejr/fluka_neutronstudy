@@ -105,6 +105,44 @@ def read_usrbin_ascii(filename):
     return np.array(data_values), header_info
 
 
+def read_usrbdx_ascii(filepath):
+    """
+    Read USRBDX ASCII output from usxrea conversion.
+
+    Returns:
+        energies: Energy bin centers (GeV)
+        fluence: Fluence dN/dE (particles/GeV/primary)
+        errors: Relative errors
+    """
+    energies = []
+    fluence = []
+    errors = []
+
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+
+    in_data = False
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#') or line.startswith('*'):
+            continue
+
+        # Look for data lines (3 columns: energy, value, error)
+        parts = line.split()
+        if len(parts) >= 3:
+            try:
+                e = float(parts[0])
+                v = float(parts[1])
+                err = float(parts[2]) if len(parts) > 2 else 0.0
+                energies.append(e)
+                fluence.append(v)
+                errors.append(err)
+            except ValueError:
+                continue
+
+    return np.array(energies), np.array(fluence), np.array(errors)
+
+
 def compute_total_energy(data, header, cycles=1):
     """
     Compute total energy deposition and statistical error on the mean.
@@ -122,15 +160,16 @@ def compute_total_energy(data, header, cycles=1):
         total: Total energy deposition (GeV/primary) - mean value
         error: Statistical error on the mean (GeV/primary)
     """
-    nx = header.get('nx', 100)
+    # Default values for thin slab geometry (1.75 cm deep)
+    nx = header.get('nx', 20)
     ny = header.get('ny', 1)
-    nz = header.get('nz', 200)
-    xmin = header.get('xmin', -100)
-    xmax = header.get('xmax', 100)
-    ymin = header.get('ymin', -100)
-    ymax = header.get('ymax', 100)
-    zmin = header.get('zmin', -5)
-    zmax = header.get('zmax', 395)
+    nz = header.get('nz', 35)
+    xmin = header.get('xmin', -10)
+    xmax = header.get('xmax', 10)
+    ymin = header.get('ymin', -10)
+    ymax = header.get('ymax', 10)
+    zmin = header.get('zmin', 0)
+    zmax = header.get('zmax', 1.75)
 
     expected_size = nx * ny * nz
     if len(data) < expected_size:
@@ -186,13 +225,14 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
         error: Statistical error on the mean (GeV/primary)
     """
 
-    nx = header.get('nx', 100)
+    # Defaults for thin slab geometry (1.75 cm deep)
+    nx = header.get('nx', 20)
     ny = header.get('ny', 1)
-    nz = header.get('nz', 200)
+    nz = header.get('nz', 35)
     xmin = header.get('xmin', -10)
     xmax = header.get('xmax', 10)
-    zmin = header.get('zmin', -5)
-    zmax = header.get('zmax', 35)
+    zmin = header.get('zmin', 0)
+    zmax = header.get('zmax', 1.75)
 
     expected_size = nx * ny * nz
     print(f"Expected {expected_size} values, got {len(data)}")
@@ -254,17 +294,21 @@ def plot_energy_deposition(data, header, output_file='edep_xz_plot.png', energy_
     ax.set_xlabel('X (cm)', fontsize=12)
     ax.set_ylabel('Z (cm)', fontsize=12)
     lib_str = f' [{neutron_lib}]' if neutron_lib else ''
-    ax.set_title(f'Energy Deposition: {energy_mev} MeV Neutron in Borated Polyethylene{lib_str}\n(XZ Projection)',
+    slab_thickness = zmax - zmin
+    ax.set_title(f'Energy Deposition: {energy_mev} MeV Neutron in BPE Slab ({slab_thickness:.2f} cm){lib_str}\n(XZ Projection)',
                  fontsize=14)
 
-    # Add neutron source indicator at center of Z range
-    z_center = (zmin + zmax) / 2
-    arrow_len = (zmax - zmin) * 0.05
-    ax.plot(0, z_center, 'g^', markersize=15, label=f'Neutron source ({energy_mev} MeV)', zorder=10)
-    ax.arrow(0, z_center + arrow_len*0.5, 0, arrow_len, head_width=2, head_length=arrow_len*0.3, fc='green', ec='green', zorder=10)
+    # Add neutron source indicator - beam comes from z<0 going +Z
+    ax.axhline(y=zmin, color='green', linestyle='--', linewidth=2, label='Slab front face')
+    ax.axhline(y=zmax, color='red', linestyle='--', linewidth=2, label='Slab back face')
+    # Arrow showing beam direction
+    ax.annotate('', xy=(0, zmin), xytext=(0, zmin - 0.3),
+                arrowprops=dict(arrowstyle='->', color='green', lw=2))
+    ax.text(0.5, zmin - 0.15, f'{energy_mev} MeV n', fontsize=10, color='green')
 
     ax.legend(loc='upper right', fontsize=10)
-    ax.set_aspect('equal')
+    # Don't force equal aspect for thin slab - it distorts the view
+    ax.set_aspect('auto')
 
     plt.tight_layout()
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
