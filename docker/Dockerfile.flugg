@@ -1,0 +1,93 @@
+# Dockerfile for FLUGG (FLUKA + Geant4 interface)
+#
+# FLUGG allows using Geant4 geometry with FLUKA physics transport.
+# This requires both FLUKA and Geant4 to be compiled together.
+#
+# Prerequisites:
+# - Valid FLUKA license and source code
+# - Place fluka source tarball in build context as fluka.tgz
+#
+# Build: docker build -f Dockerfile.flugg -t flugg:latest .
+#
+# Note: This is a complex build. You may need to adjust paths and versions
+# based on your specific FLUKA distribution.
+
+FROM geant4/geant4:11.1.1-alma9
+
+LABEL maintainer="FLUKA Neutron Study"
+LABEL description="FLUGG - FLUKA with Geant4 geometry interface"
+
+# Install build dependencies
+RUN dnf install -y \
+    gcc-gfortran \
+    gcc-c++ \
+    make \
+    cmake \
+    wget \
+    which \
+    bc \
+    python3 \
+    python3-pip \
+    libX11-devel \
+    libXmu-devel \
+    mesa-libGL-devel \
+    && dnf clean all
+
+# Set up environment
+ENV FLUPRO=/opt/fluka
+ENV FLUFOR=gfortran
+ENV G4INSTALL=/usr/local
+ENV LD_LIBRARY_PATH=${G4INSTALL}/lib:${FLUPRO}/lib:${LD_LIBRARY_PATH}
+
+# Copy FLUKA source (user must provide)
+# COPY fluka.tgz /tmp/
+
+# Install FLUKA (placeholder - adjust based on your FLUKA distribution)
+# RUN mkdir -p ${FLUPRO} && \
+#     cd ${FLUPRO} && \
+#     tar xzf /tmp/fluka.tgz && \
+#     make && \
+#     rm /tmp/fluka.tgz
+
+# Build FLUGG interface
+# FLUGG is typically built as part of FLUKA with Geant4 geometry support
+# The exact build process depends on your FLUKA version
+
+WORKDIR /flugg_work
+
+# Create wrapper script for FLUGG runs
+RUN cat > /usr/local/bin/run_flugg.sh << 'SCRIPT'
+#!/bin/bash
+# FLUGG runner script
+# Usage: run_flugg.sh <input_file> <gdml_file> [cycles]
+
+INPUT_FILE=$1
+GDML_FILE=$2
+CYCLES=${3:-5}
+
+if [ -z "$INPUT_FILE" ] || [ -z "$GDML_FILE" ]; then
+    echo "Usage: run_flugg.sh <input_file> <gdml_file> [cycles]"
+    exit 1
+fi
+
+export FLUPRO=/opt/fluka
+export FLUFOR=gfortran
+
+# Set GDML geometry file for FLUGG
+export FLUGG_GDML_FILE=$GDML_FILE
+
+# Run FLUGG
+$FLUPRO/bin/rfluka -N0 -M${CYCLES} ${INPUT_FILE%.inp}
+SCRIPT
+
+RUN chmod +x /usr/local/bin/run_flugg.sh
+
+# Note: This Dockerfile is a template. FLUGG installation requires:
+# 1. Valid FLUKA license and source
+# 2. Geant4 development libraries
+# 3. FLUGG source code (typically part of FLUKA distribution)
+# 4. Careful configuration of both systems to work together
+#
+# For production use, contact FLUKA team for FLUGG-specific instructions.
+
+CMD ["/bin/bash"]

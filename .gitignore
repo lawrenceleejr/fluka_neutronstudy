@@ -5,3 +5,7 @@ __pycache__/
 
 # Output directories (large simulation data)
 output/
+
+# Geometry files (can be large)
+geometry/
+*.gdml

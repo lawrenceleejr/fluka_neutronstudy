@@ -523,28 +523,195 @@ def energy_scan_mode(energies, cycles=5, neutron_lib='JEFF', run_simulations=Tru
     return results
 
 
+def run_flugg_mode(args):
+    """
+    Run FLUGG simulation with external GDML/DD4hep geometry.
+
+    This mode is for full detector simulations with multi-TeV particles.
+    """
+    print("="*60)
+    print("FLUGG Mode: Full Detector Simulation")
+    print("="*60)
+
+    energy_gev = args.energy if args.energy else 1500  # Default 1.5 TeV
+    particle = args.particle
+    cycles = args.cycles
+    primaries = args.primaries
+
+    # Build command for run_flugg.sh
+    cmd = ['./run_flugg.sh',
+           '--energy', str(energy_gev),
+           '--particle', particle,
+           '--cycles', str(cycles),
+           '--primaries', str(primaries),
+           '--library', args.library]
+
+    # Handle geometry source
+    if args.gdml:
+        cmd.extend(['--gdml', args.gdml])
+        print(f"Using GDML geometry: {args.gdml}")
+    elif args.compact:
+        cmd.extend(['--compact', args.compact])
+        print(f"Using DD4hep compact XML: {args.compact}")
+        print("Will convert to GDML using MuColl container...")
+    else:
+        # Default to MAIA geometry
+        default_compact = "https://raw.githubusercontent.com/key4hep/k4geo/main/MuColl/MAIA/compact/MAIA_v0.xml"
+        cmd.extend(['--compact', default_compact])
+        print(f"Using default MAIA geometry from k4geo")
+
+    print(f"Particle: {particle}")
+    print(f"Energy: {energy_gev} GeV")
+    print(f"Cycles: {cycles}, Primaries/cycle: {primaries}")
+    print()
+
+    if args.no_run:
+        print("--no-run specified, skipping simulation")
+        print(f"Would run: {' '.join(cmd)}")
+        return
+
+    # Run the FLUGG script
+    result = subprocess.run(cmd, capture_output=False)
+
+    if result.returncode != 0:
+        print("WARNING: FLUGG simulation may have failed")
+        print("Check that the FLUGG Docker image is built and available")
+        return
+
+    # Find the latest output directory
+    output_base = './output'
+    latest_dir = None
+    latest_time = 0
+
+    for dirname in os.listdir(output_base):
+        if dirname.startswith('flugg_') and dirname != 'latest':
+            dir_path = os.path.join(output_base, dirname)
+            mtime = os.path.getmtime(dir_path)
+            if mtime > latest_time:
+                latest_time = mtime
+                latest_dir = dir_path
+
+    if latest_dir:
+        print(f"\nProcessing output from: {latest_dir}")
+        # Process and plot the results
+        # For FLUGG mode, we have larger scale geometry
+        process_flugg_output(latest_dir)
+
+
+def process_flugg_output(output_dir):
+    """Process and plot FLUGG simulation output."""
+    print(f"\nProcessing FLUGG output: {output_dir}")
+
+    # Read run info
+    run_info = read_run_info(output_dir)
+    energy_gev = float(run_info.get('energy_gev', 1500))
+    particle = run_info.get('particle', 'electron')
+
+    # Look for energy deposition data
+    xz_file = os.path.join(output_dir, 'output_21.dat')
+    if os.path.exists(xz_file):
+        print(f"Reading: {xz_file}")
+        data, header = read_usrbin_ascii(xz_file)
+
+        if len(data) > 0:
+            # Override header for FLUGG geometry scale
+            header['nx'] = 100
+            header['ny'] = 1
+            header['nz'] = 200
+            header['xmin'] = -500
+            header['xmax'] = 500
+            header['zmin'] = -5000
+            header['zmax'] = 5000
+
+            plot_file = os.path.join(output_dir, 'edep_flugg_xz.png')
+
+            # Create plot with FLUGG-appropriate settings
+            fig, ax = plt.subplots(figsize=(12, 8))
+
+            expected_size = header['nx'] * header['ny'] * header['nz']
+            if len(data) < expected_size:
+                data = np.pad(data, (0, expected_size - len(data)))
+
+            data_3d = data.reshape((header['nx'], header['ny'], header['nz']), order='F')
+            data_2d = data_3d[:, 0, :]
+            plot_data = data_2d.T
+
+            x_edges = np.linspace(header['xmin'], header['xmax'], header['nx'] + 1)
+            z_edges = np.linspace(header['zmin'], header['zmax'], header['nz'] + 1)
+
+            nonzero = plot_data[plot_data > 0]
+            if len(nonzero) > 0:
+                vmin = max(nonzero.min(), 1e-15)
+                vmax = nonzero.max()
+            else:
+                vmin, vmax = 1e-15, 1e-6
+
+            norm = colors.LogNorm(vmin=vmin, vmax=vmax)
+            im = ax.pcolormesh(x_edges, z_edges, plot_data, cmap='jet', norm=norm, shading='flat')
+            plt.colorbar(im, ax=ax, label='Energy Deposition (GeV/cm³/primary)')
+
+            ax.set_xlabel('X (cm)', fontsize=12)
+            ax.set_ylabel('Z (cm)', fontsize=12)
+            ax.set_title(f'FLUGG: {energy_gev} GeV {particle} - Energy Deposition\n(XZ Projection)', fontsize=14)
+            ax.set_aspect('auto')
+
+            plt.tight_layout()
+            plt.savefig(plot_file, dpi=150, bbox_inches='tight')
+            print(f"Plot saved to: {plot_file}")
+            plt.show()
+            plt.close()
+    else:
+        print(f"No output file found at: {xz_file}")
+        print("Check that the FLUGG simulation completed successfully")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Plot energy deposition from FLUKA USRBIN output',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Simple slab mode (neutrons)
   python3 plot_edep.py                           # Plot latest output
   python3 plot_edep.py -o output/20240101_120000 # Plot specific output
   python3 plot_edep.py --scan                    # Run energy scan (default energies)
   python3 plot_edep.py --scan --energies 0.1,1,10  # Custom energies
   python3 plot_edep.py --scan --no-run           # Plot existing outputs only
+
+  # Full detector mode (FLUGG with GDML/DD4hep geometry)
+  python3 plot_edep.py --flugg --gdml detector.gdml --energy 1500
+  python3 plot_edep.py --flugg --compact MAIA_v0.xml --energy 1500
+  python3 plot_edep.py --flugg --energy 1500    # Uses default MAIA geometry
         """
     )
 
     parser.add_argument('-o', '--output-dir', dest='output_dir', default='./output/latest',
                         help='Output directory to plot (default: ./output/latest)')
+
+    # Slab mode options
     parser.add_argument('--scan', action='store_true',
-                        help='Enable energy scan mode')
+                        help='Enable energy scan mode (slab geometry)')
     parser.add_argument('--energies', type=str, default='0.01,0.1,1,10,100,1000',
                         help='Comma-separated list of energies in MeV (default: 0.01,0.1,1,10,100,1000)')
+
+    # FLUGG mode options
+    parser.add_argument('--flugg', action='store_true',
+                        help='Enable FLUGG mode with external GDML geometry')
+    parser.add_argument('--gdml', type=str, default=None,
+                        help='GDML geometry file for FLUGG mode')
+    parser.add_argument('--compact', type=str, default=None,
+                        help='DD4hep compact XML file (will be converted to GDML)')
+    parser.add_argument('--particle', type=str, default='electron',
+                        choices=['electron', 'positron', 'photon', 'muon', 'muon+'],
+                        help='Particle type for FLUGG mode (default: electron)')
+
+    # Common options
+    parser.add_argument('--energy', type=float, default=None,
+                        help='Particle energy in GeV for FLUGG mode (default: 1500 GeV)')
     parser.add_argument('--cycles', type=int, default=5,
                         help='Number of FLUKA cycles per energy (default: 5)')
+    parser.add_argument('--primaries', type=int, default=1000,
+                        help='Number of primaries per cycle (default: 1000)')
     parser.add_argument('--library', type=str, default='JEFF',
                         choices=['JEFF', 'ENDF', 'JENDL', 'CENDL', 'BROND'],
                         help='Neutron library: JEFF, ENDF, JENDL, CENDL, BROND (default: JEFF)')
@@ -553,7 +720,10 @@ Examples:
 
     args = parser.parse_args()
 
-    if args.scan:
+    if args.flugg:
+        # FLUGG mode with external geometry
+        run_flugg_mode(args)
+    elif args.scan:
         # Energy scan mode
         energies = [float(e.strip()) for e in args.energies.split(',')]
         energy_scan_mode(
