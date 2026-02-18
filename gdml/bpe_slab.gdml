@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<gdml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="http://service-spi.web.cern.ch/service-spi/app/releases/GDML/schema/gdml.xsd">
+
+  <!-- ============================================================
+       GDML Geometry: Borated Polyethylene Slab (1.75 cm thick)
+
+       Matches the FLUKA neutron_bpe.inp geometry for FLUGG testing.
+
+       Slab dimensions: 200 x 200 x 1.75 cm
+       Material: 5% borated polyethylene (density 0.95 g/cm³)
+       ============================================================ -->
+
+  <define>
+    <!-- World dimensions -->
+    <constant name="world_x" value="400"/>
+    <constant name="world_y" value="400"/>
+    <constant name="world_z" value="100"/>
+
+    <!-- Slab dimensions (cm) -->
+    <constant name="slab_x" value="200"/>
+    <constant name="slab_y" value="200"/>
+    <constant name="slab_z" value="1.75"/>
+
+    <!-- Slab position (centered in x,y, front face at z=0) -->
+    <position name="slab_pos" x="0" y="0" z="0.875" unit="cm"/>
+    <position name="origin" x="0" y="0" z="0"/>
+    <rotation name="identity" x="0" y="0" z="0"/>
+  </define>
+
+  <materials>
+    <!-- Elements -->
+    <element name="Hydrogen" formula="H" Z="1">
+      <atom value="1.00794"/>
+    </element>
+    <element name="Carbon" formula="C" Z="6">
+      <atom value="12.0107"/>
+    </element>
+    <element name="Boron" formula="B" Z="5">
+      <atom value="10.811"/>
+    </element>
+    <element name="Nitrogen" formula="N" Z="7">
+      <atom value="14.0067"/>
+    </element>
+    <element name="Oxygen" formula="O" Z="8">
+      <atom value="15.9994"/>
+    </element>
+
+    <!-- Air -->
+    <material name="Air" state="gas">
+      <D value="0.001205" unit="g/cm3"/>
+      <fraction n="0.76" ref="Nitrogen"/>
+      <fraction n="0.24" ref="Oxygen"/>
+    </material>
+
+    <!-- Borated Polyethylene (5% B by mass) -->
+    <!-- Composition: 12% H, 63% C, 5% B, 20% O (approximate for commercial BPE) -->
+    <!-- Simplified to match FLUKA: 12% H, 63% C, 5% B (renormalized to 80%) -->
+    <material name="BoratedPolyethylene" state="solid">
+      <D value="0.95" unit="g/cm3"/>
+      <fraction n="0.15" ref="Hydrogen"/>   <!-- 12/80 = 0.15 -->
+      <fraction n="0.7875" ref="Carbon"/>   <!-- 63/80 = 0.7875 -->
+      <fraction n="0.0625" ref="Boron"/>    <!-- 5/80 = 0.0625 -->
+    </material>
+
+    <!-- Alternative: exact FLUKA composition (12% H, 63% C, 5% B, need filler) -->
+    <material name="BPE_FLUKA" state="solid">
+      <D value="0.95" unit="g/cm3"/>
+      <fraction n="0.12" ref="Hydrogen"/>
+      <fraction n="0.63" ref="Carbon"/>
+      <fraction n="0.05" ref="Boron"/>
+      <fraction n="0.20" ref="Oxygen"/>  <!-- Filler to reach 100% -->
+    </material>
+
+    <!-- Vacuum for world volume -->
+    <material name="Vacuum" state="gas">
+      <D value="1e-25" unit="g/cm3"/>
+      <fraction n="1.0" ref="Hydrogen"/>
+    </material>
+  </materials>
+
+  <solids>
+    <!-- World box -->
+    <box name="WorldBox" x="world_x" y="world_y" z="world_z" lunit="cm"/>
+
+    <!-- BPE Slab -->
+    <box name="SlabBox" x="slab_x" y="slab_y" z="slab_z" lunit="cm"/>
+  </solids>
+
+  <structure>
+    <!-- BPE Slab logical volume -->
+    <volume name="BPE_Slab_LV">
+      <materialref ref="BoratedPolyethylene"/>
+      <solidref ref="SlabBox"/>
+    </volume>
+
+    <!-- World logical volume -->
+    <volume name="World_LV">
+      <materialref ref="Air"/>
+      <solidref ref="WorldBox"/>
+
+      <!-- Place the BPE slab -->
+      <physvol name="BPE_Slab_PV">
+        <volumeref ref="BPE_Slab_LV"/>
+        <positionref ref="slab_pos"/>
+        <rotationref ref="identity"/>
+      </physvol>
+    </volume>
+  </structure>
+
+  <setup name="Default" version="1.0">
+    <world ref="World_LV"/>
+  </setup>
+
+</gdml>
