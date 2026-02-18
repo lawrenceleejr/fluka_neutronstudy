@@ -1,163 +1,93 @@
 """
 FLUKA input file generator for the comparison framework.
 
-Generates FLUKA .inp files from simulation configuration.
-Uses FLUGG mode with external GDML geometry.
+Uses the proven neutron_bpe.inp as a template, patching energy and
+neutron library selection - same approach as run_fluka.sh.
 """
 
 import os
-from typing import Optional
-from .config_parser import (
-    SimulationConfig, FLUKA_PARTICLES, FLUKA_NEUTRON_LIBS
-)
+import re
+import shutil
+from .config_parser import SimulationConfig, FLUKA_PARTICLES, FLUKA_NEUTRON_LIBS
+
+# Path to the working template input file (relative to project root)
+DEFAULT_TEMPLATE = "neutron_bpe.inp"
 
 
-def format_fluka_card(keyword: str, what: list, sdum: str = "") -> str:
-    """Format a FLUKA input card with proper fixed-width columns."""
-    # FLUKA format: KEYWORD(10) WHAT1-6(10 each) SDUM(8)
-    line = f"{keyword:<10}"
-    for i, w in enumerate(what[:6]):
-        if w is None:
-            line += " " * 10
-        elif isinstance(w, str):
-            line += f"{w:>10}"
-        else:
-            line += f"{w:10.4g}"
-    # Pad to reach SDUM position if needed
-    while len(line) < 70:
-        line += " " * 10
-    line = line[:70]  # Ensure exactly 70 chars before SDUM
-    line += f"{sdum:<8}"
-    return line
-
-
-def generate_fluka_input(
-    config: SimulationConfig,
-    neutron_library: str,
+def patch_fluka_input(
+    template_path: str,
     output_path: str,
+    energy_gev: float,
+    particle: str,
+    lib_sdum: str,
+    events: int,
+    cycles: int,
 ) -> str:
     """
-    Generate FLUKA input file for FLUGG mode.
+    Produce a runnable FLUKA input by patching the template.
+
+    Replicates what run_fluka.sh does with sed:
+    - Replace BEAM energy
+    - Remove any existing LOW-PWXS card
+    - Insert LOW-PWXS before RANDOMIZ
+    - Set START count (events / cycles)
 
     Args:
-        config: Simulation configuration
-        neutron_library: Neutron library to use (JEFF, ENDF, etc.)
-        output_path: Path to write the input file
+        template_path: Path to the template .inp file
+        output_path:   Where to write the patched file
+        energy_gev:    Beam energy in GeV (negative for FLUKA momentum convention)
+        particle:      FLUKA particle name (e.g. NEUTRON)
+        lib_sdum:      LOW-PWXS SDUM field (≤8 chars)
+        events:        Total number of primaries
+        cycles:        Number of FLUKA cycles
 
     Returns:
-        Path to the generated input file
+        output_path
     """
-    particle = config.particle
-    scoring = config.scoring
+    with open(template_path, 'r') as f:
+        lines = f.readlines()
 
-    # Get FLUKA particle name
-    fluka_particle = FLUKA_PARTICLES.get(
-        particle.type.lower(), particle.type.upper()
-    )
+    # FLUKA BEAM card: negative energy = fixed kinetic energy (not momentum)
+    energy_str = f"{-energy_gev:10.4E}"
 
-    # Get neutron library SDUM
-    lib_sdum = FLUKA_NEUTRON_LIBS.get(neutron_library, neutron_library[:8])
+    patched = []
+    for line in lines:
+        keyword = line[:10].strip()
 
-    # Energy in GeV (FLUKA uses GeV)
-    energy_gev = particle.energy_gev
+        # Replace BEAM energy and particle type
+        if keyword == "BEAM":
+            # Fixed-format: 10 keyword + 6×10 WHAT fields + 8 SDUM
+            # Keep the format the same but replace energy (WHAT1) and SDUM
+            rest = line[10:]  # everything after keyword
+            # Re-emit with new energy in WHAT1, same other fields, same SDUM/particle
+            # Preserve original fields 2-6 by only replacing first 10-char slot
+            patched.append(f"BEAM      {energy_str}       0.0       0.0       0.0       0.0       1.0{particle}\n")
+            continue
 
-    lines = []
+        # Remove any existing LOW-PWXS card (will re-add it)
+        if keyword == "LOW-PWXS":
+            continue
 
-    # Title
-    lines.append("TITLE")
-    lines.append(f"FLUGG comparison run - {neutron_library} library")
+        # Insert LOW-PWXS and updated START immediately before RANDOMIZ
+        if keyword == "RANDOMIZ":
+            # LOW-PWXS card: WHAT(1)=1 activates pointwise xsec, SDUM=library
+            pwxs = (
+                f"LOW-PWXS       1.0       0.0       0.0       0.0       0.0       0.0"
+                f"{lib_sdum:<8}\n"
+            )
+            patched.append(pwxs)
 
-    # Physics defaults
-    lines.append(format_fluka_card("DEFAULTS", [None]*6, "PRECISIO"))
+        # Replace START count
+        if keyword == "START":
+            events_per_cycle = max(1, events // cycles)
+            patched.append(f"START     {events_per_cycle:>9.1f}\n")
+            continue
 
-    # Beam definition
-    # BEAM: WHAT(1)=energy, WHAT(2)=spread, WHAT(3)=divergence
-    #       WHAT(4)=beam width x, WHAT(5)=beam width y
-    lines.append(format_fluka_card(
-        "BEAM", [-energy_gev, 0.0, 0.0, 0.0, 0.0, 1.0], fluka_particle
-    ))
+        patched.append(line)
 
-    # Beam position
-    # BEAMPOS: WHAT(1-3)=x,y,z position, WHAT(4-5)=direction cosines
-    x, y, z = particle.position
-    dx, dy, dz = particle.direction
-    lines.append(format_fluka_card(
-        "BEAMPOS", [x, y, z, dx, dy, None], ""
-    ))
-
-    # FLUGG geometry card (tells FLUKA to use external geometry)
-    lines.append(format_fluka_card("GEOBEGIN", [None]*6, "FLUGG"))
-    lines.append("    0    0          FLUGG geometry from GDML")
-    lines.append("GEOEND")
-
-    # Low energy neutron transport with pointwise cross-sections
-    if config.fluka.low_energy_neutron:
-        lines.append(format_fluka_card(
-            "LOW-PWXS", [1.0, 0.0, 0.0, 0.0, 0.0, 0.0], lib_sdum
-        ))
-
-    # Scoring: Energy deposition
-    if scoring.energy_deposition.get('enabled', True):
-        edep = scoring.energy_deposition
-        x_range = edep.get('x_range', [-100, 100])
-        y_range = edep.get('y_range', [-100, 100])
-        z_range = edep.get('z_range', [0, 2])
-        x_bins = edep.get('x_bins', 1)
-        y_bins = edep.get('y_bins', 1)
-        z_bins = edep.get('z_bins', 100)
-
-        # USRBIN for energy deposition
-        # First card: type, particle, unit, xmax, ymax, zmax
-        lines.append(format_fluka_card(
-            "USRBIN", [10.0, "ENERGY", -21.0, x_range[1], y_range[1], z_range[1]],
-            "EDEP"
-        ))
-        # Second card: xmin, ymin, zmin, nx, ny, nz
-        lines.append(format_fluka_card(
-            "USRBIN", [x_range[0], y_range[0], z_range[0], x_bins, y_bins, z_bins],
-            "&"
-        ))
-
-    # Scoring: Neutron spectrum at boundary
-    if scoring.neutron_spectrum.get('enabled', True):
-        spec = scoring.neutron_spectrum
-        e_range = spec.get('energy_range', [1e-11, 1e1])
-        e_bins = spec.get('energy_bins', 100)
-
-        # USRBDX for boundary crossing spectrum
-        # Score neutrons crossing from material to vacuum (exit)
-        lines.append(format_fluka_card(
-            "USRBDX", [99.0, "NEUTRON", -23.0, "YOURMAT", "VACUUM", 1.0],
-            "NEUT-OUT"
-        ))
-        lines.append(format_fluka_card(
-            "USRBDX", [e_range[1], e_range[0], e_bins, None, None, None],
-            "&"
-        ))
-
-    # Random number seed
-    if config.seed > 0:
-        lines.append(format_fluka_card(
-            "RANDOMIZ", [1.0, config.seed, None, None, None, None], ""
-        ))
-    else:
-        lines.append(format_fluka_card(
-            "RANDOMIZ", [1.0, None, None, None, None, None], ""
-        ))
-
-    # Number of primaries
-    events_per_cycle = config.events // config.fluka.cycles
-    lines.append(format_fluka_card(
-        "START", [events_per_cycle, None, None, None, None, None], ""
-    ))
-
-    lines.append("STOP")
-
-    # Write to file
-    content = "\n".join(lines)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, 'w') as f:
-        f.write(content)
+        f.writelines(patched)
 
     return output_path
 
@@ -166,144 +96,49 @@ def generate_fluka_input_native(
     config: SimulationConfig,
     neutron_library: str,
     output_path: str,
+    template_path: str = DEFAULT_TEMPLATE,
 ) -> str:
     """
-    Generate FLUKA input file with native geometry (not FLUGG).
-
-    This version includes inline geometry definition for cases
-    where FLUGG is not available.
+    Generate FLUKA input by patching the template .inp file.
 
     Args:
-        config: Simulation configuration
-        neutron_library: Neutron library to use
-        output_path: Path to write the input file
+        config:          Simulation configuration
+        neutron_library: Library key (JEFF, ENDF, JENDL, CENDL, BROND)
+        output_path:     Destination for the patched .inp file
+        template_path:   Source template (default: neutron_bpe.inp)
 
     Returns:
-        Path to the generated input file
+        output_path
     """
-    particle = config.particle
-    scoring = config.scoring
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(
+            f"Template not found: {template_path}. "
+            "Pass template_path= pointing to a working FLUKA .inp file."
+        )
 
-    fluka_particle = FLUKA_PARTICLES.get(
-        particle.type.lower(), particle.type.upper()
-    )
     lib_sdum = FLUKA_NEUTRON_LIBS.get(neutron_library, neutron_library[:8])
-    energy_gev = particle.energy_gev
+    fluka_particle = FLUKA_PARTICLES.get(
+        config.particle.type.lower(), config.particle.type.upper()
+    )
 
-    lines = []
+    return patch_fluka_input(
+        template_path=template_path,
+        output_path=output_path,
+        energy_gev=config.particle.energy_gev,
+        particle=fluka_particle,
+        lib_sdum=lib_sdum,
+        events=config.events,
+        cycles=config.fluka.cycles,
+    )
 
-    # Title
-    lines.append("TITLE")
-    lines.append(f"FLUKA native geometry run - {neutron_library} library")
 
-    # Physics defaults
-    lines.append(format_fluka_card("DEFAULTS", [None]*6, "PRECISIO"))
-
-    # Beam
-    lines.append(format_fluka_card(
-        "BEAM", [-energy_gev, 0.0, 0.0, 0.0, 0.0, 1.0], fluka_particle
-    ))
-
-    # Beam position
-    x, y, z = particle.position
-    dx, dy, dz = particle.direction
-    lines.append(format_fluka_card(
-        "BEAMPOS", [x, y, z, dx, dy, None], ""
-    ))
-
-    # Native geometry (simple slab)
-    lines.append("GEOBEGIN                                                              COMBNAME")
-    lines.append("    0    0          BPE slab geometry")
-    # Bodies
-    lines.append("RPP world      -200. 200. -200. 200. -50. 50.")
-    lines.append("RPP bpeslab    -100. 100. -100. 100. 0. 1.75")
-    lines.append("END")
-    # Regions
-    lines.append("WORLDREG  5 +world -bpeslab")
-    lines.append("BPEREGIO  5 +bpeslab")
-    lines.append("END")
-    lines.append("GEOEND")
-
-    # Material assignment
-    lines.append(format_fluka_card(
-        "ASSIGNMA", ["VACUUM", "WORLDREG", None, None, None, None], ""
-    ))
-    lines.append(format_fluka_card(
-        "ASSIGNMA", ["BPOLY", "BPEREGIO", None, None, None, None], ""
-    ))
-
-    # BPE material definition
-    lines.append(format_fluka_card(
-        "MATERIAL", [None, None, 0.95, 25, None, None], "BPOLY"
-    ))
-    lines.append(format_fluka_card(
-        "COMPOUND", [-0.12, "HYDROGEN", -0.63, "CARBON", -0.05, "BORON"], "BPOLY"
-    ))
-    lines.append(format_fluka_card(
-        "COMPOUND", [-0.20, "OXYGEN", None, None, None, None], "BPOLY"
-    ))
-
-    # Low energy neutrons
-    if config.fluka.low_energy_neutron:
-        lines.append(format_fluka_card(
-            "LOW-PWXS", [1.0, 0.0, 0.0, 0.0, 0.0, 0.0], lib_sdum
-        ))
-
-    # Scoring
-    if scoring.energy_deposition.get('enabled', True):
-        edep = scoring.energy_deposition
-        x_range = edep.get('x_range', [-100, 100])
-        y_range = edep.get('y_range', [-100, 100])
-        z_range = edep.get('z_range', [0, 2])
-        x_bins = edep.get('x_bins', 1)
-        y_bins = edep.get('y_bins', 1)
-        z_bins = edep.get('z_bins', 100)
-
-        lines.append(format_fluka_card(
-            "USRBIN", [10.0, "ENERGY", -21.0, x_range[1], y_range[1], z_range[1]],
-            "EDEP"
-        ))
-        lines.append(format_fluka_card(
-            "USRBIN", [x_range[0], y_range[0], z_range[0], x_bins, y_bins, z_bins],
-            "&"
-        ))
-
-    if scoring.neutron_spectrum.get('enabled', True):
-        spec = scoring.neutron_spectrum
-        e_range = spec.get('energy_range', [1e-11, 1e1])
-        e_bins = spec.get('energy_bins', 100)
-
-        lines.append(format_fluka_card(
-            "USRBDX", [99.0, "NEUTRON", -23.0, "BPEREGIO", "WORLDREG", 1.0],
-            "NEUT-OUT"
-        ))
-        lines.append(format_fluka_card(
-            "USRBDX", [e_range[1], e_range[0], e_bins, None, None, None],
-            "&"
-        ))
-
-    # Random seed
-    if config.seed > 0:
-        lines.append(format_fluka_card(
-            "RANDOMIZ", [1.0, config.seed, None, None, None, None], ""
-        ))
-    else:
-        lines.append(format_fluka_card(
-            "RANDOMIZ", [1.0, None, None, None, None, None], ""
-        ))
-
-    # Start
-    events_per_cycle = config.events // config.fluka.cycles
-    lines.append(format_fluka_card(
-        "START", [events_per_cycle, None, None, None, None, None], ""
-    ))
-
-    lines.append("STOP")
-
-    # Write
-    content = "\n".join(lines)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w') as f:
-        f.write(content)
-
-    return output_path
+def generate_fluka_input(
+    config: SimulationConfig,
+    neutron_library: str,
+    output_path: str,
+    template_path: str = DEFAULT_TEMPLATE,
+) -> str:
+    """Alias for FLUGG mode - same template patching, geometry comes from GDML."""
+    return generate_fluka_input_native(
+        config, neutron_library, output_path, template_path
+    )

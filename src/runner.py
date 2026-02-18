@@ -80,32 +80,51 @@ def run_fluka_native(
     if os.path.abspath(input_file) != os.path.abspath(dest):
         shutil.copy(input_file, dest)
 
-    # Docker command
+    input_stem = input_basename.replace('.inp', '')
+    abs_output = os.path.abspath(output_dir)
+    cycles = config.fluka.cycles
+
+    # Mirror run_fluka.sh: work in /fluka_work, set FLUPRO/FLUFOR, copy results back
+    inner_script = (
+        "set -e; "
+        "export FLUPRO=/usr/local/fluka; "
+        "export FLUFOR=gfortran; "
+        "mkdir -p /fluka_work && cd /fluka_work; "
+        f"cp /data/{input_basename} .; "
+        f"$FLUPRO/bin/rfluka -N0 -M{cycles} {input_stem}; "
+        # Merge USRBIN (unit 21) if present
+        f"if ls {input_stem}001_fort.21 2>/dev/null; then "
+        f"  for i in $(seq -f '%03g' 1 {cycles}); do "
+        f"    [ -f {input_stem}${{i}}_fort.21 ] && echo {input_stem}${{i}}_fort.21; "
+        "  done > usrbin21.lst; "
+        "  echo '' >> usrbin21.lst; echo 'edep_xz.bnn' >> usrbin21.lst; "
+        "  $FLUPRO/bin/usbsuw < usrbin21.lst; "
+        "  echo -e 'edep_xz.bnn\\nedep_xz.dat\\n' | $FLUPRO/bin/usbrea; "
+        "fi; "
+        # Merge USRBDX (unit 23) if present
+        f"if ls {input_stem}001_fort.23 2>/dev/null; then "
+        f"  for i in $(seq -f '%03g' 1 {cycles}); do "
+        f"    [ -f {input_stem}${{i}}_fort.23 ] && echo {input_stem}${{i}}_fort.23; "
+        "  done > usrbdx23.lst; "
+        "  echo '' >> usrbdx23.lst; echo 'neut_exit.bnn' >> usrbdx23.lst; "
+        "  $FLUPRO/bin/usxsuw < usrbdx23.lst; "
+        "  echo -e 'neut_exit.bnn\\nneut_exit.dat\\n' | $FLUPRO/bin/usxrea; "
+        "fi; "
+        "cp -f *.bnn *.dat *.out *.log *.err /data/ 2>/dev/null || true"
+    )
+
     cmd = [
         "docker", "run", "--rm",
-        "-v", f"{os.path.abspath(output_dir)}:/data",
-        "-w", "/data",
+        "-v", f"{abs_output}:/data",
         FLUKA_IMAGE,
-        "bash", "-c",
-        f"$FLUPRO/bin/rfluka -N0 -M{config.fluka.cycles} {input_basename.replace('.inp', '')}"
+        "bash", "-c", inner_script,
     ]
 
     returncode, stdout, stderr = run_command(cmd)
 
-    # Process output files
-    if returncode == 0:
-        # Merge and convert USRBIN output
-        merge_cmd = [
-            "docker", "run", "--rm",
-            "-v", f"{os.path.abspath(output_dir)}:/data",
-            "-w", "/data",
-            FLUKA_IMAGE,
-            "bash", "-c",
-            "for f in *_fort.21; do "
-            "$FLUPRO/bin/usbsuw <<< \"${f%_fort.21}\" && "
-            "$FLUPRO/bin/usbrea <<< \"${f%.21}.bnn\"; done 2>/dev/null || true"
-        ]
-        run_command(merge_cmd)
+    # Write run log regardless of outcome
+    with open(os.path.join(output_dir, "run.log"), 'w') as f:
+        f.write(f"=== STDOUT ===\n{stdout}\n\n=== STDERR ===\n{stderr}\n")
 
     runtime = time.time() - start_time
 
@@ -349,6 +368,12 @@ class ComparisonRunner:
             results.append(result)
             status = "OK" if result.success else "FAILED"
             print(f"  {status} ({result.runtime_seconds:.1f}s)")
+            if not result.success:
+                log = os.path.join(result.output_dir, "run.log")
+                if os.path.exists(log):
+                    print(f"  Log: {log}")
+                if result.error_message:
+                    print(f"  Error: {result.error_message[:200]}")
         return results
 
     def _run_parallel(self, tasks: List[tuple], max_workers: int) -> List[RunResult]:
