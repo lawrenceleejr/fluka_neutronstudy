@@ -96,7 +96,7 @@
 
     <!-- World logical volume -->
     <volume name="World_LV">
-      <materialref ref="Air"/>
+      <materialref ref="Vacuum"/>
       <solidref ref="WorldBox"/>
 
       <!-- Place the BPE slab -->
