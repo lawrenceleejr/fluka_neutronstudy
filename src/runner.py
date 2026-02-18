@@ -74,9 +74,11 @@ def run_fluka_native(
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    # Copy input file to output directory
+    # Copy input file to output directory if not already there
     input_basename = os.path.basename(input_file)
-    shutil.copy(input_file, os.path.join(output_dir, input_basename))
+    dest = os.path.join(output_dir, input_basename)
+    if os.path.abspath(input_file) != os.path.abspath(dest):
+        shutil.copy(input_file, dest)
 
     # Docker command
     cmd = [
@@ -140,9 +142,11 @@ def run_fluka_flugg(
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    # Copy input file to output directory
+    # Copy input file to output directory if not already there
     input_basename = os.path.basename(input_file)
-    shutil.copy(input_file, os.path.join(output_dir, input_basename))
+    dest = os.path.join(output_dir, input_basename)
+    if os.path.abspath(input_file) != os.path.abspath(dest):
+        shutil.copy(input_file, dest)
 
     # Get absolute path to GDML file
     gdml_path = os.path.abspath(config.geometry_gdml)
@@ -209,9 +213,11 @@ def run_geant4(
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    # Copy macro file to output directory
+    # Copy macro file to output directory if not already there
     macro_basename = os.path.basename(macro_file)
-    shutil.copy(macro_file, os.path.join(output_dir, macro_basename))
+    dest = os.path.join(output_dir, macro_basename)
+    if os.path.abspath(macro_file) != os.path.abspath(dest):
+        shutil.copy(macro_file, dest)
 
     # Get absolute path to GDML file
     gdml_path = os.path.abspath(config.geometry_gdml)
