@@ -47,8 +47,9 @@ def patch_fluka_input(
     with open(template_path, 'r') as f:
         lines = f.readlines()
 
-    # FLUKA BEAM card: negative energy = fixed kinetic energy (not momentum)
-    energy_str = f"{-energy_gev:10.4E}"
+    # FLUKA BEAM card: positive WHAT(1) = kinetic energy in GeV,
+    #                   negative WHAT(1) = momentum in GeV/c
+    energy_str = f"{energy_gev:10.4E}"
 
     patched = []
     for line in lines:
@@ -56,11 +57,6 @@ def patch_fluka_input(
 
         # Replace BEAM energy and particle type
         if keyword == "BEAM":
-            # Fixed-format: 10 keyword + 6×10 WHAT fields + 8 SDUM
-            # Keep the format the same but replace energy (WHAT1) and SDUM
-            rest = line[10:]  # everything after keyword
-            # Re-emit with new energy in WHAT1, same other fields, same SDUM/particle
-            # Preserve original fields 2-6 by only replacing first 10-char slot
             patched.append(f"BEAM      {energy_str}       0.0       0.0       0.0       0.0       1.0{particle}\n")
             continue
 

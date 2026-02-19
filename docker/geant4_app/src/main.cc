@@ -1,8 +1,8 @@
 #include "G4RunManagerFactory.hh"
 #include "G4UImanager.hh"
-#include "G4GDMLParser.hh"
 #include "G4VModularPhysicsList.hh"
 #include "G4PhysListFactory.hh"
+#include "DetectorConstruction.hh"
 #include "ActionInitialization.hh"
 #include "G4SystemOfUnits.hh"
 
@@ -60,10 +60,8 @@ int main(int argc, char** argv) {
     // Create run manager
     auto* runManager = G4RunManagerFactory::CreateRunManager(G4RunManagerType::Default);
 
-    // Load GDML geometry
-    G4GDMLParser parser;
-    parser.Read(geometryFile);
-    runManager->SetUserInitialization(parser.GetWorldVolume()->GetLogicalVolume());
+    // Detector construction reads GDML and returns world volume
+    runManager->SetUserInitialization(new DetectorConstruction(geometryFile));
 
     // Set up physics list
     G4PhysListFactory factory;
@@ -74,6 +72,7 @@ int main(int argc, char** argv) {
         for (const auto& name : factory.AvailablePhysLists()) {
             std::cerr << "  " << name << "\n";
         }
+        delete runManager;
         return 1;
     }
     runManager->SetUserInitialization(physics);
@@ -87,8 +86,7 @@ int main(int argc, char** argv) {
     // Execute macro if provided
     G4UImanager* UImanager = G4UImanager::GetUIpointer();
     if (!macroFile.empty()) {
-        G4String command = "/control/execute ";
-        UImanager->ApplyCommand(command + macroFile);
+        UImanager->ApplyCommand("/control/execute " + macroFile);
     }
 
     delete runManager;

@@ -235,7 +235,7 @@ GEANT4_PARTICLES = {
 
 # FLUKA neutron library SDUM codes (must be ≤8 chars)
 FLUKA_NEUTRON_LIBS = {
-    'JEFF': 'JEFF3.3',
+    'JEFF': 'JEFF-3.3',   # must match run_fluka.sh (8 chars max)
     'ENDF': 'ENDFB8.0',
     'JENDL': 'JENDL4.0',
     'CENDL': 'CENDL3.1',
