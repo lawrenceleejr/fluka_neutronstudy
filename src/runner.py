@@ -18,7 +18,7 @@ from .config_parser import SimulationConfig
 
 # Docker image names
 FLUGG_IMAGE = "flugg:latest"
-GEANT4_IMAGE = "ghcr.io/kalradaisy/geant4muc:dev-CI"
+GEANT4_IMAGE = "comparison_app:latest"  # built from docker/Dockerfile.comparison
 FLUKA_IMAGE = "fluka:ggi"
 
 
