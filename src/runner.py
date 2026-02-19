@@ -87,6 +87,10 @@ def run_fluka_native(
     # Mirror run_fluka.sh: work in /fluka_work, set FLUPRO/FLUFOR, copy results back
     inner_script = (
         "set -e; "
+        # Install gfortran if missing (matches run_fluka.sh)
+        "if ! command -v gfortran >/dev/null; then "
+        "  apt-get update -qq && apt-get install -y -qq gfortran; "
+        "fi; "
         "export FLUPRO=/usr/local/fluka; "
         "export FLUFOR=gfortran; "
         "mkdir -p /fluka_work && cd /fluka_work; "
