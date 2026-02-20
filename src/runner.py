@@ -92,7 +92,7 @@ def run_fluka_native(
         "fi",
         "export FLUPRO=/usr/local/fluka",
         "export FLUFOR=gfortran",
-        "mkdir -p /fluka_work && cd /fluka_work",
+        "mkdir -p /fluka_work",  # -w sets cwd, mkdir ensures it exists
         f"cp /data/{input_basename} .",
         f"$FLUPRO/bin/rfluka -N0 -M{cycles} {input_stem}",
         "RFLUKA_EXIT=$?",
@@ -126,6 +126,7 @@ def run_fluka_native(
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{abs_output}:/data",
+        "-w", "/fluka_work",  # match run_fluka.sh
         FLUKA_IMAGE,
         "bash", "-c", inner_script,
     ]
