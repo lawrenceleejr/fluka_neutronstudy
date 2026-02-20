@@ -84,38 +84,44 @@ def run_fluka_native(
     abs_output = os.path.abspath(output_dir)
     cycles = config.fluka.cycles
 
-    # Mirror run_fluka.sh: work in /fluka_work, set FLUPRO/FLUFOR, copy results back
-    inner_script = (
-        "set -e; "
-        # Install gfortran if missing (matches run_fluka.sh)
-        "if ! command -v gfortran >/dev/null; then "
-        "  apt-get update -qq && apt-get install -y -qq gfortran; "
-        "fi; "
-        "export FLUPRO=/usr/local/fluka; "
-        "export FLUFOR=gfortran; "
-        "mkdir -p /fluka_work && cd /fluka_work; "
-        f"cp /data/{input_basename} .; "
-        f"$FLUPRO/bin/rfluka -N0 -M{cycles} {input_stem}; "
-        # Merge USRBIN (unit 21) if present
-        f"if ls {input_stem}001_fort.21 2>/dev/null; then "
-        f"  for i in $(seq -f '%03g' 1 {cycles}); do "
-        f"    [ -f {input_stem}${{i}}_fort.21 ] && echo {input_stem}${{i}}_fort.21; "
-        "  done > usrbin21.lst; "
-        "  echo '' >> usrbin21.lst; echo 'edep_xz.bnn' >> usrbin21.lst; "
-        "  $FLUPRO/bin/usbsuw < usrbin21.lst; "
-        "  echo -e 'edep_xz.bnn\\nedep_xz.dat\\n' | $FLUPRO/bin/usbrea; "
-        "fi; "
-        # Merge USRBDX (unit 23) if present
-        f"if ls {input_stem}001_fort.23 2>/dev/null; then "
-        f"  for i in $(seq -f '%03g' 1 {cycles}); do "
-        f"    [ -f {input_stem}${{i}}_fort.23 ] && echo {input_stem}${{i}}_fort.23; "
-        "  done > usrbdx23.lst; "
-        "  echo '' >> usrbdx23.lst; echo 'neut_exit.bnn' >> usrbdx23.lst; "
-        "  $FLUPRO/bin/usxsuw < usrbdx23.lst; "
-        "  echo -e 'neut_exit.bnn\\nneut_exit.dat\\n' | $FLUPRO/bin/usxrea; "
-        "fi; "
-        "cp -f *.bnn *.dat *.out *.log *.err /data/ 2>/dev/null || true"
-    )
+    # Mirror run_fluka.sh: work in /fluka_work, set FLUPRO/FLUFOR, copy results back.
+    # No set -e: rfluka exits non-zero on failure; we must still copy diagnostic files.
+    inner_script = "\n".join([
+        "if ! command -v gfortran >/dev/null; then",
+        "  apt-get update -qq && apt-get install -y -qq gfortran",
+        "fi",
+        "export FLUPRO=/usr/local/fluka",
+        "export FLUFOR=gfortran",
+        "mkdir -p /fluka_work && cd /fluka_work",
+        f"cp /data/{input_basename} .",
+        f"$FLUPRO/bin/rfluka -N0 -M{cycles} {input_stem}",
+        "RFLUKA_EXIT=$?",
+        # Always copy any diagnostic files from the temp subdir first
+        "for d in fluka_*/; do",
+        "  [ -d \"$d\" ] && cp -f \"$d\"*.out \"$d\"*.err \"$d\"*.log . 2>/dev/null || true",
+        "done",
+        # Merge USRBIN (unit 21) only on success
+        f"if [ $RFLUKA_EXIT -eq 0 ] && ls {input_stem}001_fort.21 2>/dev/null; then",
+        f"  for i in $(seq -f '%03g' 1 {cycles}); do",
+        f"    [ -f {input_stem}${{i}}_fort.21 ] && echo {input_stem}${{i}}_fort.21",
+        "  done > usrbin21.lst",
+        "  echo '' >> usrbin21.lst && echo 'edep_xz.bnn' >> usrbin21.lst",
+        "  $FLUPRO/bin/usbsuw < usrbin21.lst",
+        "  echo -e 'edep_xz.bnn\\nedep_xz.dat\\n' | $FLUPRO/bin/usbrea",
+        "fi",
+        # Merge USRBDX (unit 23) only on success
+        f"if [ $RFLUKA_EXIT -eq 0 ] && ls {input_stem}001_fort.23 2>/dev/null; then",
+        f"  for i in $(seq -f '%03g' 1 {cycles}); do",
+        f"    [ -f {input_stem}${{i}}_fort.23 ] && echo {input_stem}${{i}}_fort.23",
+        "  done > usrbdx23.lst",
+        "  echo '' >> usrbdx23.lst && echo 'neut_exit.bnn' >> usrbdx23.lst",
+        "  $FLUPRO/bin/usxsuw < usrbdx23.lst",
+        "  echo -e 'neut_exit.bnn\\nneut_exit.dat\\n' | $FLUPRO/bin/usxrea",
+        "fi",
+        # Always copy everything available back to host
+        "cp -f *.bnn *.dat *.out *.log *.err /data/ 2>/dev/null || true",
+        "exit $RFLUKA_EXIT",
+    ])
 
     cmd = [
         "docker", "run", "--rm",
