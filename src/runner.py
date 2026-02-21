@@ -13,13 +13,16 @@ from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .config_parser import SimulationConfig
+from .config_parser import SimulationConfig, FLUKA_NEUTRON_LIBS
 
 
 # Docker image names
 FLUGG_IMAGE = "flugg:latest"
 GEANT4_IMAGE = "comparison_app:latest"  # built from docker/Dockerfile.comparison
 FLUKA_IMAGE = "fluka:ggi"
+
+# Default FLUKA template (relative to working directory when run_comparison.py is invoked)
+DEFAULT_FLUKA_TEMPLATE = "neutron_bpe.inp"
 
 
 @dataclass
@@ -54,16 +57,20 @@ def run_command(cmd: List[str], cwd: Optional[str] = None,
 def run_fluka_native(
     config: SimulationConfig,
     neutron_library: str,
-    input_file: str,
+    template_path: str,
     output_dir: str,
 ) -> RunResult:
     """
     Run FLUKA simulation with native geometry in Docker.
 
+    Mirrors run_fluka.sh exactly: mounts the template directory read-only,
+    copies the original neutron_bpe.inp, patches with sed inside the
+    container, then runs rfluka.
+
     Args:
         config: Simulation configuration
-        neutron_library: Neutron library name
-        input_file: Path to FLUKA input file
+        neutron_library: Neutron library name (JEFF, ENDF, etc.)
+        template_path: Path to the FLUKA template .inp file (neutron_bpe.inp)
         output_dir: Output directory for results
 
     Returns:
@@ -74,29 +81,52 @@ def run_fluka_native(
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    # Copy input file to output directory if not already there
-    input_basename = os.path.basename(input_file)
-    dest = os.path.join(output_dir, input_basename)
-    if os.path.abspath(input_file) != os.path.abspath(dest):
-        shutil.copy(input_file, dest)
-
-    input_stem = input_basename.replace('.inp', '')
     abs_output = os.path.abspath(output_dir)
-    cycles = config.fluka.cycles
+    abs_template = os.path.abspath(template_path)
+    template_dir = os.path.dirname(abs_template)
+    template_basename = os.path.basename(abs_template)   # e.g. neutron_bpe.inp
+    input_stem = template_basename.replace('.inp', '')    # e.g. neutron_bpe
 
-    # Mirror run_fluka.sh: work in /fluka_work, set FLUPRO/FLUFOR, copy results back.
-    # No set -e: rfluka exits non-zero on failure; we must still copy diagnostic files.
+    lib_sdum = FLUKA_NEUTRON_LIBS.get(neutron_library, neutron_library[:8])
+    cycles = config.fluka.cycles
+    events = config.events
+    events_per_cycle = max(1, events // cycles)
+    energy_gev = config.particle.energy_gev
+
+    # Mirror run_fluka.sh:
+    #  - Copy original template into /fluka_work
+    #  - Patch BEAM energy with sed (same printf format as run_fluka.sh)
+    #  - Remove/re-insert LOW-PWXS with correct fixed-format printf
+    #  - Update START count
+    #  - Run rfluka; capture exit code without set -e
+    #  - Always copy diagnostic files from fluka_*/ subdirs
+    #  - Merge USRBIN (unit 21) and USRBDX (unit 23) on success
+    #  - Copy all outputs back to /data
     inner_script = "\n".join([
         "if ! command -v gfortran >/dev/null; then",
         "  apt-get update -qq && apt-get install -y -qq gfortran",
         "fi",
         "export FLUPRO=/usr/local/fluka",
         "export FLUFOR=gfortran",
-        "mkdir -p /fluka_work",  # -w sets cwd, mkdir ensures it exists
-        f"cp /data/{input_basename} .",
+        "mkdir -p /fluka_work",
+        "cd /fluka_work",
+        f"cp /template/{template_basename} .",
+        # Patch BEAM card – same sed pattern as run_fluka.sh
+        (f'sed -i "s/^BEAM .*/'
+         f'BEAM      {energy_gev:10.4E}       0.0       0.0       0.0       0.0       1.0NEUTRON/'
+         f'" {template_basename}'),
+        # Remove any existing LOW-PWXS, then re-insert before RANDOMIZ
+        # using the same printf format as run_fluka.sh
+        f'sed -i "/^LOW-PWXS/d" {template_basename}',
+        (f'PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s"'
+         f' "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "{lib_sdum}")'),
+        f'sed -i "/^RANDOMIZ/i $PWXS_CARD" {template_basename}',
+        # Patch START count
+        f'sed -i "s/^START.*/START     {events_per_cycle:>10.1f}/" {template_basename}',
+        # Run FLUKA
         f"$FLUPRO/bin/rfluka -N0 -M{cycles} {input_stem}",
         "RFLUKA_EXIT=$?",
-        # Always copy any diagnostic files from the temp subdir first
+        # Always copy any diagnostic files from FLUKA's temp subdir
         "for d in fluka_*/; do",
         "  [ -d \"$d\" ] && cp -f \"$d\"*.out \"$d\"*.err \"$d\"*.log . 2>/dev/null || true",
         "done",
@@ -126,7 +156,8 @@ def run_fluka_native(
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{abs_output}:/data",
-        "-w", "/fluka_work",  # match run_fluka.sh
+        "-v", f"{template_dir}:/template:ro",
+        "-w", "/fluka_work",
         FLUKA_IMAGE,
         "bash", "-c", inner_script,
     ]
@@ -289,16 +320,19 @@ class ComparisonRunner:
     Orchestrates running multiple FLUKA and Geant4 simulations.
     """
 
-    def __init__(self, config: SimulationConfig, use_flugg: bool = False):
+    def __init__(self, config: SimulationConfig, use_flugg: bool = False,
+                 template_path: str = DEFAULT_FLUKA_TEMPLATE):
         """
         Initialize the runner.
 
         Args:
             config: Simulation configuration
             use_flugg: Whether to use FLUGG for FLUKA runs
+            template_path: Path to the FLUKA template .inp file
         """
         self.config = config
         self.use_flugg = use_flugg
+        self.template_path = template_path
         self.results: List[RunResult] = []
 
     def run_all(
@@ -320,7 +354,6 @@ class ComparisonRunner:
         Returns:
             List of RunResult objects
         """
-        from .fluka_generator import generate_fluka_input, generate_fluka_input_native
         from .geant4_generator import generate_geant4_macro
 
         # Determine models to run
@@ -333,16 +366,20 @@ class ComparisonRunner:
         tasks = []
 
         # Prepare FLUKA tasks
+        # For native mode: pass template_path; sed patching done inside container.
+        # For FLUGG mode: pre-generate patched input file.
         for lib in fluka_models:
             output_dir = os.path.join(base_output, 'fluka', lib)
-            input_file = os.path.join(output_dir, 'input.inp')
+            os.makedirs(output_dir, exist_ok=True)
 
             if self.use_flugg:
-                generate_fluka_input(self.config, lib, input_file)
+                from .fluka_generator import generate_fluka_input
+                input_file = os.path.join(output_dir, 'input.inp')
+                generate_fluka_input(self.config, lib, input_file, self.template_path)
                 tasks.append(('fluka_flugg', lib, input_file, output_dir))
             else:
-                generate_fluka_input_native(self.config, lib, input_file)
-                tasks.append(('fluka_native', lib, input_file, output_dir))
+                # Pass template_path as third element; no pre-generation needed
+                tasks.append(('fluka_native', lib, self.template_path, output_dir))
 
         # Prepare Geant4 tasks
         for phys in geant4_models:
@@ -362,19 +399,19 @@ class ComparisonRunner:
     def _run_sequential(self, tasks: List[tuple]) -> List[RunResult]:
         """Run tasks sequentially."""
         results = []
-        for task_type, model, input_file, output_dir in tasks:
+        for task_type, model, input_or_template, output_dir in tasks:
             print(f"Running {task_type}/{model}...")
             if task_type == 'fluka_native':
                 result = run_fluka_native(
-                    self.config, model, input_file, output_dir
+                    self.config, model, input_or_template, output_dir
                 )
             elif task_type == 'fluka_flugg':
                 result = run_fluka_flugg(
-                    self.config, model, input_file, output_dir
+                    self.config, model, input_or_template, output_dir
                 )
             else:  # geant4
                 result = run_geant4(
-                    self.config, model, input_file, output_dir
+                    self.config, model, input_or_template, output_dir
                 )
             results.append(result)
             status = "OK" if result.success else "FAILED"
@@ -392,18 +429,18 @@ class ComparisonRunner:
         results = []
 
         def run_task(task):
-            task_type, model, input_file, output_dir = task
+            task_type, model, input_or_template, output_dir = task
             if task_type == 'fluka_native':
                 return run_fluka_native(
-                    self.config, model, input_file, output_dir
+                    self.config, model, input_or_template, output_dir
                 )
             elif task_type == 'fluka_flugg':
                 return run_fluka_flugg(
-                    self.config, model, input_file, output_dir
+                    self.config, model, input_or_template, output_dir
                 )
             else:
                 return run_geant4(
-                    self.config, model, input_file, output_dir
+                    self.config, model, input_or_template, output_dir
                 )
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
