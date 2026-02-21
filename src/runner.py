@@ -135,8 +135,8 @@ def run_fluka_native(
         "done",
         # Debug: dump .out file when FLUKA fails so run.log captures the error
         "if [ $RFLUKA_EXIT -ne 0 ]; then",
-        f'  echo "=== FLUKA .out file (last 120 lines) ==="',
-        f"  cat {input_stem}001.out 2>/dev/null | tail -120 || echo 'No .out file found'",
+        f'  echo "=== FLUKA .out file ==="',
+        f"  cat {input_stem}001.out 2>/dev/null || echo 'No .out file found'",
         f'  echo "=== End of .out ==="',
         "fi",
         # Merge USRBIN (unit 21) only on success
