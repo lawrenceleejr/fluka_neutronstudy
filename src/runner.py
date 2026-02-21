@@ -121,8 +121,7 @@ def run_fluka_native(
         (f'PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s"'
          f' "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "{lib_sdum}")'),
         f'sed -i "/^RANDOMIZ/i $PWXS_CARD" {template_basename}',
-        # Patch START count
-        f'sed -i "s/^START.*/START     {events_per_cycle:>10.1f}/" {template_basename}',
+        # NOTE: Don't patch START - use template value (run_fluka.sh doesn't modify it either)
         # Debug: show patched input so run.log captures it
         f'echo "=== Patched {template_basename} ==="',
         f'cat {template_basename}',
