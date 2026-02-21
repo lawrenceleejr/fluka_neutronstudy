@@ -102,42 +102,52 @@ def run_fluka_native(
     #  - Always copy diagnostic files from fluka_*/ subdirs
     #  - Merge USRBIN (unit 21) and USRBDX (unit 23) on success
     #  - Copy all outputs back to /data
+    # Mirror run_fluka.sh as closely as possible.
+    # Key: compute ENERGY_STR with bash printf (not Python) and use set -x for tracing.
     inner_script = "\n".join([
-        "if ! command -v gfortran >/dev/null; then",
-        "  apt-get update -qq && apt-get install -y -qq gfortran",
+        # Install gfortran + wget exactly like run_fluka.sh
+        "if ! command -v gfortran &> /dev/null || ! command -v wget &> /dev/null; then",
+        "  apt-get update -qq && apt-get install -y -qq gfortran wget",
         "fi",
-        "export FLUPRO=/usr/local/fluka",
+        # Enable bash tracing – output goes to stderr (captured in run.log under STDERR)
+        "set -x",
+        # Variable setup matching run_fluka.sh style
+        "FLUPRO=/usr/local/fluka",
+        "export FLUPRO",
         "export FLUFOR=gfortran",
+        f'INPUT_FILE="{template_basename}"',
+        'INPUT_BASE="${INPUT_FILE%.inp}"',
+        f'CYCLES={cycles}',
+        f'ENERGY_GEV={energy_gev}',
+        f'PWXS_SDUM="{lib_sdum}"',
         "mkdir -p /fluka_work",
         "cd /fluka_work",
-        f"cp /template/{template_basename} .",
-        # Patch BEAM card – same sed pattern as run_fluka.sh
-        (f'sed -i "s/^BEAM .*/'
-         f'BEAM      {energy_gev:10.4E}       0.0       0.0       0.0       0.0       1.0NEUTRON/'
-         f'" {template_basename}'),
-        # Remove any existing LOW-PWXS, then re-insert before RANDOMIZ
-        # using the same printf format as run_fluka.sh
-        f'sed -i "/^LOW-PWXS/d" {template_basename}',
-        (f'PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s"'
-         f' "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "{lib_sdum}")'),
-        f'sed -i "/^RANDOMIZ/i $PWXS_CARD" {template_basename}',
-        # NOTE: Don't patch START - use template value (run_fluka.sh doesn't modify it either)
-        # Debug: show patched input so run.log captures it
-        f'echo "=== Patched {template_basename} ==="',
-        f'cat {template_basename}',
-        f'echo "=== End of input ==="',
-        # Run FLUKA
-        f"$FLUPRO/bin/rfluka -N0 -M{cycles} {input_stem}",
+        # Copy template (from read-only mount)
+        "cp /template/$INPUT_FILE .",
+        # Patch BEAM: compute energy string with bash printf, same as run_fluka.sh
+        "ENERGY_STR=$(printf '%10.4E' $ENERGY_GEV)",
+        'sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE',
+        # Remove any existing LOW-PWXS then re-insert before RANDOMIZ
+        'sed -i "/^LOW-PWXS/d" $INPUT_FILE',
+        'PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s" "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "$PWXS_SDUM")',
+        'sed -i "/^RANDOMIZ/i $PWXS_CARD" $INPUT_FILE',
+        # Show patched file in stdout for diagnosis
+        'echo "=== Patched $INPUT_FILE ==="',
+        'cat $INPUT_FILE',
+        'echo "=== End of input ==="',
+        # Turn off tracing for the rfluka run (too verbose), capture exit code
+        "set +x",
+        f"$FLUPRO/bin/rfluka -N0 -M$CYCLES $INPUT_BASE",
         "RFLUKA_EXIT=$?",
-        # Always copy any diagnostic files from FLUKA's temp subdir
+        # Copy diagnostics from FLUKA's temp subdirectory
         "for d in fluka_*/; do",
-        "  [ -d \"$d\" ] && cp -f \"$d\"*.out \"$d\"*.err \"$d\"*.log . 2>/dev/null || true",
+        '  [ -d "$d" ] && cp -f "$d"*.out "$d"*.err "$d"*.log . 2>/dev/null || true',
         "done",
-        # Debug: dump .out file when FLUKA fails so run.log captures the error
+        # Dump .out file on failure for diagnosis
         "if [ $RFLUKA_EXIT -ne 0 ]; then",
-        f'  echo "=== FLUKA .out file ==="',
-        f"  cat {input_stem}001.out 2>/dev/null || echo 'No .out file found'",
-        f'  echo "=== End of .out ==="',
+        '  echo "=== FLUKA .out file ==="',
+        '  cat ${INPUT_BASE}001.out 2>/dev/null || echo "No .out file found"',
+        '  echo "=== End of .out ==="',
         "fi",
         # Merge USRBIN (unit 21) only on success
         f"if [ $RFLUKA_EXIT -eq 0 ] && ls {input_stem}001_fort.21 2>/dev/null; then",
@@ -157,7 +167,7 @@ def run_fluka_native(
         "  $FLUPRO/bin/usxsuw < usrbdx23.lst",
         "  echo -e 'neut_exit.bnn\\nneut_exit.dat\\n' | $FLUPRO/bin/usxrea",
         "fi",
-        # Always copy everything available back to host
+        # Copy everything back to host
         "cp -f *.bnn *.dat *.out *.log *.err /data/ 2>/dev/null || true",
         "exit $RFLUKA_EXIT",
     ])
