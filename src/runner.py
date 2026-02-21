@@ -123,6 +123,10 @@ def run_fluka_native(
         f'sed -i "/^RANDOMIZ/i $PWXS_CARD" {template_basename}',
         # Patch START count
         f'sed -i "s/^START.*/START     {events_per_cycle:>10.1f}/" {template_basename}',
+        # Debug: show patched input so run.log captures it
+        f'echo "=== Patched {template_basename} ==="',
+        f'cat {template_basename}',
+        f'echo "=== End of input ==="',
         # Run FLUKA
         f"$FLUPRO/bin/rfluka -N0 -M{cycles} {input_stem}",
         "RFLUKA_EXIT=$?",
@@ -130,6 +134,12 @@ def run_fluka_native(
         "for d in fluka_*/; do",
         "  [ -d \"$d\" ] && cp -f \"$d\"*.out \"$d\"*.err \"$d\"*.log . 2>/dev/null || true",
         "done",
+        # Debug: dump .out file when FLUKA fails so run.log captures the error
+        "if [ $RFLUKA_EXIT -ne 0 ]; then",
+        f'  echo "=== FLUKA .out file (last 120 lines) ==="',
+        f"  cat {input_stem}001.out 2>/dev/null | tail -120 || echo 'No .out file found'",
+        f'  echo "=== End of .out ==="',
+        "fi",
         # Merge USRBIN (unit 21) only on success
         f"if [ $RFLUKA_EXIT -eq 0 ] && ls {input_stem}001_fort.21 2>/dev/null; then",
         f"  for i in $(seq -f '%03g' 1 {cycles}); do",
