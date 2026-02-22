@@ -63,8 +63,8 @@ def run_fluka_native(
     """
     Run FLUKA simulation with native geometry in Docker.
 
-    Mirrors run_fluka.sh exactly: mounts the template directory read-only,
-    copies the original neutron_bpe.inp, patches with sed inside the
+    Mirrors run_fluka.sh exactly: mounts the project directory to /data,
+    copies neutron_bpe.inp from /data, patches with sed inside the
     container, then runs rfluka.
 
     Args:
@@ -89,28 +89,26 @@ def run_fluka_native(
 
     lib_sdum = FLUKA_NEUTRON_LIBS.get(neutron_library, neutron_library[:8])
     cycles = config.fluka.cycles
-    events = config.events
-    events_per_cycle = max(1, events // cycles)
     energy_gev = config.particle.energy_gev
 
-    # Mirror run_fluka.sh:
-    #  - Copy original template into /fluka_work
-    #  - Patch BEAM energy with sed (same printf format as run_fluka.sh)
-    #  - Remove/re-insert LOW-PWXS with correct fixed-format printf
-    #  - Update START count
-    #  - Run rfluka; capture exit code without set -e
-    #  - Always copy diagnostic files from fluka_*/ subdirs
-    #  - Merge USRBIN (unit 21) and USRBDX (unit 23) on success
-    #  - Copy all outputs back to /data
-    # Mirror run_fluka.sh as closely as possible.
-    # Key: compute ENERGY_STR with bash printf (not Python) and use set -x for tracing.
+    # Compute output subdirectory path relative to project root
+    # We mount the project directory (template_dir) to /data, matching run_fluka.sh
+    rel_output = os.path.relpath(abs_output, template_dir)
+
+    # Mirror run_fluka.sh exactly:
+    #  - Mount project directory to /data (single volume, like run_fluka.sh)
+    #  - Copy input from /data to /fluka_work
+    #  - Use set -e for strict error handling (like run_fluka.sh)
+    #  - Patch with sed using same printf formats
+    #  - Run rfluka with error handling
+    #  - Copy outputs to /data/$OUTPUT_DIR
     inner_script = "\n".join([
+        "set -e",
         # Install gfortran + wget exactly like run_fluka.sh
         "if ! command -v gfortran &> /dev/null || ! command -v wget &> /dev/null; then",
+        "  echo 'Installing required packages...'",
         "  apt-get update -qq && apt-get install -y -qq gfortran wget",
         "fi",
-        # Enable bash tracing – output goes to stderr (captured in run.log under STDERR)
-        "set -x",
         # Variable setup matching run_fluka.sh style
         "FLUPRO=/usr/local/fluka",
         "export FLUPRO",
@@ -120,62 +118,86 @@ def run_fluka_native(
         f'CYCLES={cycles}',
         f'ENERGY_GEV={energy_gev}',
         f'PWXS_SDUM="{lib_sdum}"',
+        f'OUTPUT_DIR="{rel_output}"',
         "mkdir -p /fluka_work",
         "cd /fluka_work",
-        # Copy template (from read-only mount)
-        "cp /template/$INPUT_FILE .",
+        # Copy template from /data (same as run_fluka.sh)
+        "cp /data/$INPUT_FILE .",
         # Patch BEAM: compute energy string with bash printf, same as run_fluka.sh
-        "ENERGY_STR=$(printf '%10.4E' $ENERGY_GEV)",
+        'ENERGY_STR=$(printf "%10.4E" $ENERGY_GEV)',
         'sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE',
+        'echo "Set neutron energy to $ENERGY_GEV GeV"',
         # Remove any existing LOW-PWXS then re-insert before RANDOMIZ
         'sed -i "/^LOW-PWXS/d" $INPUT_FILE',
         'PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s" "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "$PWXS_SDUM")',
         'sed -i "/^RANDOMIZ/i $PWXS_CARD" $INPUT_FILE',
-        # Show patched file in stdout for diagnosis
-        'echo "=== Patched $INPUT_FILE ==="',
-        'cat $INPUT_FILE',
-        'echo "=== End of input ==="',
-        # Turn off tracing for the rfluka run (too verbose), capture exit code
-        "set +x",
-        f"$FLUPRO/bin/rfluka -N0 -M$CYCLES $INPUT_BASE",
-        "RFLUKA_EXIT=$?",
-        # Copy diagnostics from FLUKA's temp subdirectory
-        "for d in fluka_*/; do",
-        '  [ -d "$d" ] && cp -f "$d"*.out "$d"*.err "$d"*.log . 2>/dev/null || true',
-        "done",
-        # Dump .out file on failure for diagnosis
-        "if [ $RFLUKA_EXIT -ne 0 ]; then",
-        '  echo "=== FLUKA .out file ==="',
-        '  cat ${INPUT_BASE}001.out 2>/dev/null || echo "No .out file found"',
-        '  echo "=== End of .out ==="',
-        "fi",
-        # Merge USRBIN (unit 21) only on success
-        f"if [ $RFLUKA_EXIT -eq 0 ] && ls {input_stem}001_fort.21 2>/dev/null; then",
-        f"  for i in $(seq -f '%03g' 1 {cycles}); do",
-        f"    [ -f {input_stem}${{i}}_fort.21 ] && echo {input_stem}${{i}}_fort.21",
-        "  done > usrbin21.lst",
-        "  echo '' >> usrbin21.lst && echo 'edep_xz.bnn' >> usrbin21.lst",
+        'echo "Added LOW-PWXS card for library: $PWXS_SDUM"',
+        'echo "FLUKA path: $FLUPRO"',
+        'echo "Running simulation with rfluka..."',
+        # Run rfluka with error handling (same pattern as run_fluka.sh)
+        f"$FLUPRO/bin/rfluka -N0 -M${{CYCLES}} ${{INPUT_BASE}} || {{",
+        '  echo ""',
+        '  echo "=== FLUKA run failed. Checking logs ==="',
+        '  echo "--- .out file ---"',
+        '  cat ${INPUT_BASE}001.out 2>/dev/null | tail -100 || echo "No .out file"',
+        '  echo "--- .err file ---"',
+        '  cat ${INPUT_BASE}001.err 2>/dev/null || echo "No .err file"',
+        '  echo "--- .log file ---"',
+        '  cat ${INPUT_BASE}001.log 2>/dev/null || echo "No .log file"',
+        "  mkdir -p /data/$OUTPUT_DIR",
+        "  cp -f *.out /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        "  cp -f *.err /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        "  cp -f *.log /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        "  exit 1",
+        "}",
+        'echo ""',
+        'echo "Simulation complete. Processing output..."',
+        # Merge USRBIN (unit 21)
+        f"if ls {input_stem}001_fort.21 1>/dev/null 2>&1; then",
+        '  echo "Merging USRBIN output files..."',
+        f"  echo '{input_stem}001_fort.21' > usrbin21.lst",
+        f"  for i in $(seq -f '%03g' 2 $CYCLES); do",
+        f"    [ -f '{input_stem}'${{i}}_fort.21 ] && echo '{input_stem}'${{i}}_fort.21 >> usrbin21.lst",
+        "  done",
+        "  echo '' >> usrbin21.lst",
+        "  echo 'usrbin21.lst_sum' >> usrbin21.lst",
         "  $FLUPRO/bin/usbsuw < usrbin21.lst",
+        "  [ -f usrbin21.lst_sum ] && mv usrbin21.lst_sum edep_xz.bnn",
+        "fi",
+        # Merge USRBDX (unit 23)
+        f"if ls {input_stem}001_fort.23 1>/dev/null 2>&1; then",
+        '  echo "Processing USRBDX output (unit 23)..."',
+        f"  echo '{input_stem}001_fort.23' > usrbdx23.lst",
+        f"  for i in $(seq -f '%03g' 2 $CYCLES); do",
+        f"    [ -f '{input_stem}'${{i}}_fort.23 ] && echo '{input_stem}'${{i}}_fort.23 >> usrbdx23.lst",
+        "  done",
+        "  echo '' >> usrbdx23.lst",
+        "  echo 'neut_exit.bnn' >> usrbdx23.lst",
+        "  $FLUPRO/bin/usxsuw < usrbdx23.lst",
+        "fi",
+        # Convert to ASCII
+        'echo "Converting to ASCII format..."',
+        "if [ -f edep_xz.bnn ]; then",
         "  echo -e 'edep_xz.bnn\\nedep_xz.dat\\n' | $FLUPRO/bin/usbrea",
         "fi",
-        # Merge USRBDX (unit 23) only on success
-        f"if [ $RFLUKA_EXIT -eq 0 ] && ls {input_stem}001_fort.23 2>/dev/null; then",
-        f"  for i in $(seq -f '%03g' 1 {cycles}); do",
-        f"    [ -f {input_stem}${{i}}_fort.23 ] && echo {input_stem}${{i}}_fort.23",
-        "  done > usrbdx23.lst",
-        "  echo '' >> usrbdx23.lst && echo 'neut_exit.bnn' >> usrbdx23.lst",
-        "  $FLUPRO/bin/usxsuw < usrbdx23.lst",
+        "if [ -f neut_exit.bnn ]; then",
         "  echo -e 'neut_exit.bnn\\nneut_exit.dat\\n' | $FLUPRO/bin/usxrea",
         "fi",
-        # Copy everything back to host
-        "cp -f *.bnn *.dat *.out *.log *.err /data/ 2>/dev/null || true",
-        "exit $RFLUKA_EXIT",
+        # Copy outputs to host
+        "mkdir -p /data/$OUTPUT_DIR",
+        "cp -f *.bnn /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        "cp -f *.dat /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        "cp -f *.out /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        "cp -f *.log /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        "cp -f *.err /data/$OUTPUT_DIR/ 2>/dev/null || true",
+        'echo ""',
+        'echo "Output files copied to /data/$OUTPUT_DIR/"',
+        "ls -la /data/$OUTPUT_DIR/",
     ])
 
     cmd = [
         "docker", "run", "--rm",
-        "-v", f"{abs_output}:/data",
-        "-v", f"{template_dir}:/template:ro",
+        "-v", f"{template_dir}:/data",
         "-w", "/fluka_work",
         FLUKA_IMAGE,
         "bash", "-c", inner_script,
