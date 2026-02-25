@@ -123,7 +123,7 @@ def run_fluka_native(
         "cp /data/$INPUT_FILE .",
         # Patch BEAM: compute energy string with bash printf, same as run_fluka.sh
         'ENERGY_STR=$(printf "%10.4E" $ENERGY_GEV)',
-        'sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       0.0NEUTRON/" $INPUT_FILE',
+        'sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE',
         'echo "Set neutron energy to $ENERGY_GEV GeV"',
         # Remove any LOW-PWXS cards (pointwise libraries not installed in container)
         'sed -i "/^LOW-PWXS/d" $INPUT_FILE',

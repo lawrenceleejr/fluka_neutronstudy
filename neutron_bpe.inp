@@ -33,7 +33,7 @@ ASSIGNMA         AIR  AIRREGIO
 ASSIGNMA     BORPOLY  BPEREGIO
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Beam: neutron at z=-1 going +Z into the slab
-BEAM           0.001       0.0       0.0       0.0       0.0       0.0NEUTRON
+BEAM           0.001       0.0       0.0       0.0       0.0       1.0NEUTRON
 BEAMPOS          0.0       0.0      -1.0       0.0       0.0       1.0
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Scoring energy deposition in the slab - XZ projection
@@ -46,7 +46,7 @@ USRBIN         -10.0     -10.0       0.0       10.       10.       35. &
 * Score neutron fluence spectrum at exit (z=1.75 boundary)
 * USRBDX: boundary crossing estimator for neutrons exiting the slab
 * Scores dN/dE at boundary between BPEREGIO and AIRREGIO
-USRBDX           1.0   NEUTRON      -23.  BPEREGIO  AIRREGIO       1.0NEUT-OUT
+USRBDX          99.0   NEUTRON      -23.  BPEREGIO  AIRREGIO       1.0NEUT-OUT
 USRBDX         0.001       0.0      100.               &
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 RANDOMIZ         1.0
