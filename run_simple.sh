@@ -10,23 +10,36 @@ DOCKER_IMAGE="fluka:ggi"
 INPUT_FILE="neutron_bpe.inp"
 
 # ---------------------------------------------------------------------------
-# Inline script that runs inside the container to set up the environment
-# and print diagnostics. Used by all three modes.
+# SETUP_SCRIPT: installs gfortran if absent (rfluka requires it to link)
+# and exports FLUKA environment variables.  Run first in every mode.
 # ---------------------------------------------------------------------------
-DIAG_SCRIPT='
+SETUP_SCRIPT='
 set +e
 FLUPRO=/usr/local/fluka
 FLUFOR=gfortran
 export FLUPRO FLUFOR
 export PATH="$FLUPRO/bin:$PATH"
 
+if ! command -v gfortran &>/dev/null; then
+    echo "[setup] gfortran not found — installing..."
+    apt-get update -qq && apt-get install -y -qq gfortran
+    echo "[setup] gfortran installed."
+else
+    echo "[setup] gfortran already present: $(gfortran --version | head -1)"
+fi
+'
+
+# ---------------------------------------------------------------------------
+# DIAG_SCRIPT: prints a full container report.  Assumes SETUP_SCRIPT ran.
+# ---------------------------------------------------------------------------
+DIAG_SCRIPT='
 echo ""
 echo "============================================================"
 echo " FLUKA Container Diagnostics"
 echo "============================================================"
 
 echo ""
-echo "--- FLUKA installation path ---"
+echo "--- FLUKA installation path ($FLUPRO) ---"
 if [ -d "$FLUPRO" ]; then
     ls "$FLUPRO"
 else
@@ -34,13 +47,21 @@ else
 fi
 
 echo ""
-echo "--- Key utilities ---"
+echo "--- Compiler (required by rfluka) ---"
+if command -v gfortran &>/dev/null; then
+    echo "  [OK]  gfortran: $(gfortran --version | head -1)"
+else
+    echo "  [!!]  gfortran: NOT FOUND — rfluka cannot link without it"
+fi
+
+echo ""
+echo "--- Key FLUKA utilities ---"
 for util in rfluka usbsuw usbrea usxsuw usxrea; do
-    path="$FLUPRO/bin/$util"
-    if [ -x "$path" ]; then
-        echo "  [OK]  $path"
+    p="$FLUPRO/bin/$util"
+    if [ -x "$p" ]; then
+        echo "  [OK]  $p"
     else
-        echo "  [!!]  $path  <-- NOT FOUND"
+        echo "  [!!]  $p  <-- NOT FOUND"
     fi
 done
 
@@ -62,19 +83,20 @@ if [ -n "$found" ]; then
     echo "$found" | sed "s/^/  /"
 else
     echo "  None found under $FLUPRO"
+    echo "  (pointwise libraries like JEFF-3.3 are not in the stock image)"
 fi
 
 echo ""
-echo "--- Searching wider filesystem for JEFF/ENDF/JENDL library files ---"
+echo "--- Wider filesystem search for JEFF/ENDF/JENDL files ---"
 wide=$(find / -maxdepth 6 \( -name "JEFF*" -o -name "ENDFB*" -o -name "JENDL*" -o -name "*.nds" \) 2>/dev/null | head -20)
 if [ -n "$wide" ]; then
     echo "$wide" | sed "s/^/  /"
 else
-    echo "  None found (pointwise XS libraries likely not installed)"
+    echo "  None found"
 fi
 
 echo ""
-echo "--- rfluka self-test (version/help) ---"
+echo "--- rfluka self-report ---"
 "$FLUPRO/bin/rfluka" -h 2>&1 | head -8 || echo "  rfluka -h failed"
 
 echo ""
@@ -82,21 +104,19 @@ echo "============================================================"
 '
 
 # ---------------------------------------------------------------------------
-# Cheatsheet banner printed at the start of the interactive shell
+# CHEATSHEET: printed when the interactive shell starts
 # ---------------------------------------------------------------------------
 CHEATSHEET='
 echo ""
 echo "============================================================"
-echo " FLUKA Debug Cheatsheet"
+echo " FLUKA Debug Cheatsheet  (env already set, input file staged)"
 echo "============================================================"
-echo "  cd /fluka_work                         # working directory"
-echo "  cp /data/neutron_bpe.inp .             # (already done)"
-echo '\''\$FLUPRO/bin/rfluka -N0 -M1 neutron_bpe  # run 1 cycle'\''
-echo '\''\$FLUPRO/bin/rfluka -N0 -M1 neutron_bpe 2>&1 | tee run.log'\''
-echo "  tail -f neutron_bpe001.out             # watch output live"
-echo "  cat neutron_bpe001.err                 # check errors"
-echo "  ls \$FLUPRO/data/                       # group XS data"
-echo "  find \$FLUPRO -name \"*.nds\"             # pointwise XS libs"
+echo "  \$FLUPRO/bin/rfluka -N0 -M1 neutron_bpe   # run 1 cycle"
+echo "  \$FLUPRO/bin/rfluka -N0 -M1 neutron_bpe 2>&1 | tee run.log"
+echo "  tail -f neutron_bpe001.out                # watch live"
+echo "  cat neutron_bpe001.err                    # check errors"
+echo "  ls \$FLUPRO/data/                          # group XS data"
+echo "  find \$FLUPRO -name \"*.nds\"                # pointwise XS libs"
 echo "============================================================"
 echo ""
 '
@@ -111,7 +131,8 @@ case "${1:-}" in
         docker run --rm \
             -v "$(pwd):/data" \
             "$DOCKER_IMAGE" \
-            bash -c "$DIAG_SCRIPT"
+            bash -c "$SETUP_SCRIPT
+$DIAG_SCRIPT"
         ;;
 
     --check)
@@ -122,7 +143,7 @@ case "${1:-}" in
             -v "$(pwd):/data" \
             -w "/fluka_work" \
             "$DOCKER_IMAGE" \
-            bash -c "
+            bash -c "$SETUP_SCRIPT
 $DIAG_SCRIPT
 
 echo ''
@@ -130,16 +151,11 @@ echo '============================================================'
 echo ' Test run: rfluka -N0 -M1'
 echo '============================================================'
 
-FLUPRO=/usr/local/fluka
-FLUFOR=gfortran
-export FLUPRO FLUFOR
-export PATH=\"\$FLUPRO/bin:\$PATH\"
-
 mkdir -p /fluka_work
 cd /fluka_work
 cp /data/$INPUT_FILE .
 
-# Strip pointwise library cards (not available in stock image)
+# Strip pointwise library cards (not installed in stock image)
 sed -i '/^LOW-PWXS/d' $INPUT_FILE
 
 echo 'Input file prepared. Starting rfluka...'
@@ -159,7 +175,7 @@ echo '--- neutron_bpe001.log ---'
 cat neutron_bpe001.log 2>/dev/null || echo '(no .log file)'
 
 echo ''
-echo '--- Copying logs to /data/output/debug_check/ ---'
+echo '--- Output files ---'
 mkdir -p /data/output/debug_check
 cp -f *.out /data/output/debug_check/ 2>/dev/null || true
 cp -f *.err /data/output/debug_check/ 2>/dev/null || true
@@ -167,8 +183,7 @@ cp -f *.log /data/output/debug_check/ 2>/dev/null || true
 cp -f *_fort.* /data/output/debug_check/ 2>/dev/null || true
 ls -lh /data/output/debug_check/
 
-exit \$FLUKA_RC
-"
+exit \$FLUKA_RC"
         echo ""
         echo "Logs saved to: output/debug_check/"
         ;;
@@ -178,8 +193,7 @@ exit \$FLUKA_RC
         echo "(Run './run_simple.sh --diagnose' for a non-interactive report)"
         echo ""
 
-        # Build the .bashrc that runs inside the container
-        BASHRC="
+        BASHRC="$SETUP_SCRIPT
 $DIAG_SCRIPT
 $CHEATSHEET
 
@@ -195,7 +209,7 @@ fi
 export PS1='[fluka-debug \w]\$ '
 "
         # Write rcfile to a host temp file and mount it — process substitution
-        # (<(...)) produces a host-side fd that doesn't exist inside Docker.
+        # (<(...)) creates a host-side fd that doesn't exist inside Docker.
         TMPRC=$(mktemp /tmp/fluka_rc_XXXXXX.sh)
         echo "$BASHRC" > "$TMPRC"
         docker run -it --rm \
