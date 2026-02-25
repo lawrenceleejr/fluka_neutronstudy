@@ -194,11 +194,17 @@ fi
 
 export PS1='[fluka-debug \w]\$ '
 "
+        # Write rcfile to a host temp file and mount it — process substitution
+        # (<(...)) produces a host-side fd that doesn't exist inside Docker.
+        TMPRC=$(mktemp /tmp/fluka_rc_XXXXXX.sh)
+        echo "$BASHRC" > "$TMPRC"
         docker run -it --rm \
             -v "$(pwd):/data" \
+            -v "$TMPRC:/tmp/fluka_rc.sh:ro" \
             -w "/fluka_work" \
             "$DOCKER_IMAGE" \
-            bash --rcfile <(echo "$BASHRC")
+            bash --rcfile /tmp/fluka_rc.sh
+        rm -f "$TMPRC"
         ;;
 
     *)
