@@ -103,9 +103,23 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE
     echo "Set neutron energy to $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
 
-    # Remove any LOW-PWXS cards (pointwise libraries not installed in container;
-    # DEFAULTS PRECISIO provides good group-wise neutron transport)
+    # Remove any existing LOW-PWXS cards first
     sed -i "/^LOW-PWXS/d" $INPUT_FILE
+
+    # Install FLUKA pointwise neutron library packages if present, then activate
+    # the selected library.  neutron_libraries/ is in the project root, already
+    # mounted at /data.
+    if ls /data/neutron_libraries/fluka-pw-*.deb 2>/dev/null | head -1 >/dev/null; then
+        echo "Installing FLUKA pointwise neutron library packages..."
+        dpkg -i /data/neutron_libraries/fluka-pw-*.deb 2>&1 \
+            || echo "WARNING: one or more packages may have failed to install"
+        # Insert LOW-PWXS card before START to activate the selected library
+        PWXS_LINE="LOW-PWXS  $(printf '%60s')${PWXS_SDUM}"
+        sed -i "/^START/i\\$PWXS_LINE" $INPUT_FILE
+        echo "Activated pointwise library: $PWXS_SDUM"
+    else
+        echo "No pointwise library packages found in /data/neutron_libraries/; using built-in group-wise data"
+    fi
 
     echo "FLUKA path: $FLUPRO"
     echo "Running simulation with rfluka..."

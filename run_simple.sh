@@ -27,6 +27,17 @@ if ! command -v gfortran &>/dev/null; then
 else
     echo "[setup] gfortran already present: $(gfortran --version | head -1)"
 fi
+
+# Install FLUKA pointwise neutron library packages if present.
+# neutron_libraries/ lives in the project root, already mounted at /data.
+if ls /data/neutron_libraries/fluka-pw-*.deb 2>/dev/null | head -1 >/dev/null; then
+    echo "[setup] Installing FLUKA pointwise neutron library packages..."
+    dpkg -i /data/neutron_libraries/fluka-pw-*.deb 2>&1 \
+        || echo "[setup] WARNING: one or more packages failed to install"
+    echo "[setup] Pointwise libraries installed."
+else
+    echo "[setup] No neutron library packages in /data/neutron_libraries/ — group-wise XS data will be used"
+fi
 '
 
 # ---------------------------------------------------------------------------
@@ -154,9 +165,6 @@ echo '============================================================'
 mkdir -p /fluka_work
 cd /fluka_work
 cp /data/$INPUT_FILE .
-
-# Strip pointwise library cards (not installed in stock image)
-sed -i '/^LOW-PWXS/d' $INPUT_FILE
 
 echo 'Input file prepared. Starting rfluka...'
 echo ''

@@ -90,6 +90,9 @@ def run_fluka_native(
     cycles = config.fluka.cycles
     energy_gev = config.particle.energy_gev
 
+    # SDUM code for the LOW-PWXS card (≤8 chars, matches run_fluka.sh mapping)
+    pwxs_sdum = FLUKA_NEUTRON_LIBS.get(neutron_library.upper(), 'JEFF-3.3')
+
     # Compute output subdirectory path relative to project root
     # We mount the project directory (template_dir) to /data, matching run_fluka.sh
     rel_output = os.path.relpath(abs_output, template_dir)
@@ -125,8 +128,21 @@ def run_fluka_native(
         'ENERGY_STR=$(printf "%10.4E" $ENERGY_GEV)',
         'sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE',
         'echo "Set neutron energy to $ENERGY_GEV GeV"',
-        # Remove any LOW-PWXS cards (pointwise libraries not installed in container)
+        # Remove any existing LOW-PWXS cards first
         'sed -i "/^LOW-PWXS/d" $INPUT_FILE',
+        # Install FLUKA pointwise neutron library packages if mounted, then activate
+        # the selected library.  neutron_libraries/ is in the project root, already
+        # mounted at /data.
+        'if ls /data/neutron_libraries/fluka-pw-*.deb 2>/dev/null | head -1 >/dev/null; then',
+        '  echo "Installing FLUKA pointwise neutron library packages..."',
+        '  dpkg -i /data/neutron_libraries/fluka-pw-*.deb 2>&1 \\',
+        '      || echo "WARNING: one or more packages may have failed to install"',
+        f'  PWXS_LINE="LOW-PWXS  {" " * 60}{pwxs_sdum}"',
+        '  sed -i "/^START/i\\$PWXS_LINE" "$INPUT_FILE"',
+        f'  echo "Activated pointwise library: {pwxs_sdum}"',
+        'else',
+        '  echo "No pointwise library packages; using built-in group-wise data"',
+        'fi',
         'echo "FLUKA path: $FLUPRO"',
         'echo "Running simulation with rfluka..."',
         # Run rfluka with error handling (same pattern as run_fluka.sh)
