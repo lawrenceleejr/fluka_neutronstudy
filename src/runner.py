@@ -87,7 +87,6 @@ def run_fluka_native(
     template_basename = os.path.basename(abs_template)   # e.g. neutron_bpe.inp
     input_stem = template_basename.replace('.inp', '')    # e.g. neutron_bpe
 
-    lib_sdum = FLUKA_NEUTRON_LIBS.get(neutron_library, neutron_library[:8])
     cycles = config.fluka.cycles
     energy_gev = config.particle.energy_gev
 
@@ -117,7 +116,6 @@ def run_fluka_native(
         'INPUT_BASE="${INPUT_FILE%.inp}"',
         f'CYCLES={cycles}',
         f'ENERGY_GEV={energy_gev}',
-        f'PWXS_SDUM="{lib_sdum}"',
         f'OUTPUT_DIR="{rel_output}"',
         "mkdir -p /fluka_work",
         "cd /fluka_work",
@@ -127,11 +125,8 @@ def run_fluka_native(
         'ENERGY_STR=$(printf "%10.4E" $ENERGY_GEV)',
         'sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       0.0NEUTRON/" $INPUT_FILE',
         'echo "Set neutron energy to $ENERGY_GEV GeV"',
-        # Remove any existing LOW-PWXS then re-insert before RANDOMIZ
+        # Remove any LOW-PWXS cards (pointwise libraries not installed in container)
         'sed -i "/^LOW-PWXS/d" $INPUT_FILE',
-        'PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s" "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "$PWXS_SDUM")',
-        'sed -i "/^RANDOMIZ/i $PWXS_CARD" $INPUT_FILE',
-        'echo "Added LOW-PWXS card for library: $PWXS_SDUM"',
         'echo "FLUKA path: $FLUPRO"',
         'echo "Running simulation with rfluka..."',
         # Run rfluka with error handling (same pattern as run_fluka.sh)

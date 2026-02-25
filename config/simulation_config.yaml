@@ -23,14 +23,12 @@ simulation:
 fluka:
   enabled: true
   cycles: 5               # FLUKA cycles (events split across cycles)
-  # List of neutron libraries to scan
+  # Neutron library labels for comparison
+  # Note: pointwise libraries (JEFF, ENDF, etc.) require separate data packages
+  # not included in the base fluka:ggi image. DEFAULTS PRECISIO provides
+  # group-wise neutron transport which is adequate for this comparison.
   neutron_libraries:
-    - JEFF
-    - ENDF
-    - JENDL
-    - CENDL
-    - BROND
-  low_energy_neutron: true  # Enable pointwise neutron transport
+    - default
 
 # Geant4 settings
 geant4:

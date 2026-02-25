@@ -103,13 +103,9 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       0.0NEUTRON/" $INPUT_FILE
     echo "Set neutron energy to $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
 
-    # Add LOW-PWXS card to select pointwise neutron library
-    # Remove any existing LOW-PWXS card first, then add the new one before RANDOMIZ
+    # Remove any LOW-PWXS cards (pointwise libraries not installed in container;
+    # DEFAULTS PRECISIO provides good group-wise neutron transport)
     sed -i "/^LOW-PWXS/d" $INPUT_FILE
-    # FLUKA fixed format: 10-char keyword + 6x10-char WHAT fields + 8-char SDUM = 78 chars
-    PWXS_CARD=$(printf "%-10s%10.1f%10.1f%10.1f%10.1f%10.1f%10.1f%-8s" "LOW-PWXS" 1.0 0.0 0.0 0.0 0.0 0.0 "$PWXS_SDUM")
-    sed -i "/^RANDOMIZ/i $PWXS_CARD" $INPUT_FILE
-    echo "Added LOW-PWXS card for library: $PWXS_SDUM"
 
     echo "FLUKA path: $FLUPRO"
     echo "Running simulation with rfluka..."
