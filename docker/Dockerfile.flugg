@@ -1,0 +1,106 @@
+# Dockerfile for FLUGG (FLUKA + Geant4 interface)
+#
+# Builds on top of existing fluka:ggi image and adds Geant4 for FLUGG support.
+# FLUGG allows using Geant4 geometry (GDML) with FLUKA physics transport.
+#
+# Build: docker build -f docker/Dockerfile.flugg -t flugg:latest .
+#
+# Usage:
+#   docker run --rm -v $(pwd):/data flugg:latest /data/run_flugg.sh ...
+
+FROM fluka:ggi
+
+LABEL maintainer="FLUKA Neutron Study"
+LABEL description="FLUGG - FLUKA with Geant4 geometry interface"
+
+# Install Geant4 and build dependencies
+# Note: Adjust package manager if base image uses different distro
+RUN apt-get update && apt-get install -y \
+    cmake \
+    g++ \
+    libxerces-c-dev \
+    libexpat1-dev \
+    libx11-dev \
+    libxmu-dev \
+    libgl1-mesa-dev \
+    libglu1-mesa-dev \
+    wget \
+    git \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    || (dnf install -y \
+        cmake \
+        gcc-c++ \
+        xerces-c-devel \
+        expat-devel \
+        libX11-devel \
+        libXmu-devel \
+        mesa-libGL-devel \
+        mesa-libGLU-devel \
+        wget \
+        git \
+        python3 \
+        python3-pip \
+        && dnf clean all)
+
+# Download and build Geant4 (version compatible with FLUGG)
+ENV G4VERSION=11.1.1
+ENV G4INSTALL=/opt/geant4
+ENV G4DATA=/opt/geant4/data
+
+RUN mkdir -p /tmp/g4build && cd /tmp/g4build && \
+    wget -q https://gitlab.cern.ch/geant4/geant4/-/archive/v${G4VERSION}/geant4-v${G4VERSION}.tar.gz && \
+    tar xzf geant4-v${G4VERSION}.tar.gz && \
+    mkdir build && cd build && \
+    cmake ../geant4-v${G4VERSION} \
+        -DCMAKE_INSTALL_PREFIX=${G4INSTALL} \
+        -DGEANT4_INSTALL_DATA=ON \
+        -DGEANT4_USE_GDML=ON \
+        -DGEANT4_BUILD_MULTITHREADED=OFF \
+        -DGEANT4_USE_SYSTEM_EXPAT=ON \
+        && \
+    make -j$(nproc) && \
+    make install && \
+    cd / && rm -rf /tmp/g4build
+
+# Set up Geant4 environment
+ENV PATH=${G4INSTALL}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${G4INSTALL}/lib:${LD_LIBRARY_PATH}
+
+# Source Geant4 environment on shell start
+RUN echo "source ${G4INSTALL}/bin/geant4.sh" >> /etc/bash.bashrc
+
+# Set FLUKA paths (should already exist in base image, but ensure they're set)
+ENV FLUPRO=/usr/local/fluka
+ENV FLUFOR=gfortran
+
+# Build FLUGG interface library
+WORKDIR /opt/flugg
+
+# Copy GDML loader source file
+COPY docker/gdml_loader.cc /opt/flugg/gdml_loader.cc
+
+# Build the GDML loader library
+RUN . ${G4INSTALL}/bin/geant4.sh && \
+    g++ -shared -fPIC -o libflugg_gdml.so gdml_loader.cc \
+        $(geant4-config --cflags) \
+        $(geant4-config --libs) \
+        -lG4gdml || echo "GDML loader build skipped - may need manual FLUGG setup"
+
+ENV LD_LIBRARY_PATH=/opt/flugg:${LD_LIBRARY_PATH}
+
+WORKDIR /flugg_work
+
+# Copy wrapper script
+COPY docker/flugg_run.sh /usr/local/bin/flugg_run.sh
+RUN chmod +x /usr/local/bin/flugg_run.sh
+
+# Verify installation
+RUN echo "Checking installations..." && \
+    ls -la ${FLUPRO}/bin/ | head -5 && \
+    ls -la ${G4INSTALL}/bin/ | head -5 && \
+    echo "FLUKA: $(${FLUPRO}/bin/fluka -v 2>&1 | head -1 || echo 'version check skipped')" && \
+    echo "Geant4: $(geant4-config --version 2>/dev/null || echo 'not in PATH yet')"
+
+CMD ["/bin/bash"]

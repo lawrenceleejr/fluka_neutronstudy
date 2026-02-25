@@ -1,0 +1,101 @@
+{
+    "_comment": "Material mapping from Geant4/GDML to FLUKA materials",
+    "_description": "Maps G4 material names to FLUKA material indices or names",
+
+    "materials": {
+        "G4_AIR": "AIR",
+        "Air": "AIR",
+        "air": "AIR",
+
+        "G4_POLYETHYLENE": "POLYETHY",
+        "Polyethylene": "POLYETHY",
+        "PE": "POLYETHY",
+
+        "G4_BORATED_POLYETHYLENE": "BORPOLY",
+        "BoratedPolyethylene": "BORPOLY",
+        "BPE": "BORPOLY",
+
+        "G4_WATER": "WATER",
+        "Water": "WATER",
+        "H2O": "WATER",
+
+        "G4_Al": "ALUMINUM",
+        "Aluminum": "ALUMINUM",
+        "Al": "ALUMINUM",
+
+        "G4_Fe": "IRON",
+        "Iron": "IRON",
+        "Fe": "IRON",
+        "Steel": "IRON",
+
+        "G4_Cu": "COPPER",
+        "Copper": "COPPER",
+        "Cu": "COPPER",
+
+        "G4_W": "TUNGSTEN",
+        "Tungsten": "TUNGSTEN",
+        "W": "TUNGSTEN",
+
+        "G4_Pb": "LEAD",
+        "Lead": "LEAD",
+        "Pb": "LEAD",
+
+        "G4_CONCRETE": "ITEite",
+        "Concrete": "ITE ITE",
+
+        "G4_Si": "SILICON",
+        "Silicon": "SILICON",
+        "Si": "SILICON",
+
+        "G4_C": "CARBON",
+        "Carbon": "CARBON",
+        "Graphite": "CARBON",
+
+        "G4_Galactic": "VACUUM",
+        "Vacuum": "VACUUM",
+        "vacuum": "VACUUM",
+
+        "G4_STAINLESS-STEEL": "SITE SS",
+        "StainlessSteel": "SITE SS",
+        "SS316": "SITE SS",
+
+        "G4_lAr": "ARGON",
+        "LiquidArgon": "ARGON",
+        "LAr": "ARGON",
+
+        "G4_KAPTON": "KAPTON",
+        "Kapton": "KAPTON",
+
+        "G4_MYLAR": "MYLAR",
+        "Mylar": "MYLAR",
+
+        "G4_BERYLLIUM": "BERYLLIU",
+        "Beryllium": "BERYLLIU",
+        "Be": "BERYLLIU",
+
+        "G4_Ti": "TITANIUM",
+        "Titanium": "TITANIUM",
+        "Ti": "TITANIUM"
+    },
+
+    "custom_materials": {
+        "_comment": "Custom material definitions for FLUKA",
+        "BORPOLY": {
+            "density": 0.95,
+            "composition": {
+                "HYDROGEN": -0.12,
+                "CARBON": -0.63,
+                "BORON": -0.05
+            }
+        }
+    },
+
+    "default_material": "AIR",
+
+    "region_overrides": {
+        "_comment": "Override materials for specific region names",
+        "World": "VACUUM",
+        "world": "VACUUM",
+        "WorldVolume": "VACUUM"
+    }
+}
