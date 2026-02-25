@@ -1,20 +1,23 @@
 TITLE
-Neutron capture in borated polyethylene - 1 MeV neutron
+Neutron energy loss in thin borated polyethylene slab (1.75 cm)
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * PRECISIO enables pointwise neutron transport for accurate low-E simulation
 DEFAULTS                                                              PRECISIO
 *
 GEOBEGIN                                                              COMBNAME
-    0    0          Borated polyethylene neutron capture study
-* Bodies - 200x200x400 cm BPE block
-RPP blkhole    -1000. 1000. -1000. 1000. -1000. 1000.
-RPP airbox     -400. 400. -400. 400. -200. 600.
-RPP bpeblk     -100. 100. -100. 100. 0. 400.
+    0    0          Thin BPE slab neutron transmission study
+* Bodies - Wide thin slab geometry
+* Blackhole outer boundary
+RPP blkhole    -500. 500. -500. 500. -100. 100.
+* Air region around the slab
+RPP airbox     -200. 200. -200. 200. -50. 50.
+* BPE slab: 200x200 cm wide, 1.75 cm deep (z = 0 to 1.75)
+RPP bpeslab    -100. 100. -100. 100. 0. 1.75
 END
 * Regions
 BLKHOLE      5 +blkhole -airbox
-AIRREGIO     5 +airbox -bpeblk
-BPEREGIO     5 +bpeblk
+AIRREGIO     5 +airbox -bpeslab
+BPEREGIO     5 +bpeslab
 END
 GEOEND
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
@@ -29,15 +32,22 @@ ASSIGNMA    BLCKHOLE   BLKHOLE
 ASSIGNMA         AIR  AIRREGIO
 ASSIGNMA     BORPOLY  BPEREGIO
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Beam: 1 MeV neutron at center of block (0, 0, 200) going +Z
+* Beam: neutron at z=-1 going +Z into the slab
 BEAM           0.001       0.0       0.0       0.0       0.0       1.0NEUTRON
-BEAMPOS          0.0       0.0     200.0
+BEAMPOS          0.0       0.0      -1.0       0.0       0.0       1.0
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
-* Scoring energy deposition - 50x100 bins for XZ projection
-USRBIN          10.0    ENERGY      -21.     100.0     100.0     400.0EDEP-XZ
-USRBIN        -100.0    -100.0       0.0       50.        1.      100. &
-USRBIN          10.0    ENERGY      -22.     100.0     100.0     400.0EDEP-3D
-USRBIN        -100.0    -100.0       0.0       25.       25.       50. &
+* Scoring energy deposition in the slab - XZ projection
+USRBIN          10.0    ENERGY      -21.      10.0      10.0      1.75EDEP-XZ
+USRBIN         -10.0     -10.0       0.0       20.        1.       35. &
+* Scoring energy deposition - 3D binning
+USRBIN          10.0    ENERGY      -22.      10.0      10.0      1.75EDEP-3D
+USRBIN         -10.0     -10.0       0.0       10.       10.       35. &
+*...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
+* Score neutron fluence spectrum at exit (z=1.75 boundary)
+* USRBDX: boundary crossing estimator for neutrons exiting the slab
+* Scores dN/dE at boundary between BPEREGIO and AIRREGIO
+USRBDX          99.0   NEUTRON      -23.  BPEREGIO  AIRREGIO       1.0NEUT-OUT
+USRBDX         0.001       0.0      100.               &
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 RANDOMIZ         1.0
 START        10000.0

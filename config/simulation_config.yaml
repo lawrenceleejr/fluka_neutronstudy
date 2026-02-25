@@ -1,0 +1,67 @@
+# Simulation configuration for FLUKA vs Geant4 comparison
+# This file defines the particle gun, geometry, and physics models to scan
+
+# Particle gun definition
+particle:
+  type: neutron           # electron, positron, photon, muon, neutron, proton
+  energy: 1.0             # MeV (will be converted to GeV for codes that need it)
+  energy_unit: MeV        # MeV or GeV
+  position: [0, 0, -10]   # Starting point [x, y, z] in cm
+  direction: [0, 0, 1]    # Direction unit vector [dx, dy, dz]
+
+# Geometry
+geometry:
+  gdml: gdml/bpe_slab.gdml    # Path to GDML file
+
+# Simulation parameters
+simulation:
+  events: 10000           # Number of primary particles
+  output_dir: output/scan_results  # Base output directory
+  seed: 12345             # Random seed (0 = use time-based)
+
+# FLUKA/FLUGG settings
+fluka:
+  enabled: true
+  cycles: 5               # FLUKA cycles (events split across cycles)
+  # Neutron library labels for comparison
+  # Note: pointwise libraries (JEFF, ENDF, etc.) require separate data packages
+  # not included in the base fluka:ggi image. DEFAULTS PRECISIO provides
+  # group-wise neutron transport which is adequate for this comparison.
+  neutron_libraries:
+    - default
+
+# Geant4 settings
+geant4:
+  enabled: true
+  cut_value: 1.0          # Production cut in mm
+  # List of physics lists to scan
+  physics_lists:
+    - FTFP_BERT
+    - FTFP_BERT_HP
+    - QGSP_BERT
+    - QGSP_BERT_HP
+    - QGSP_BIC_HP
+    - Shielding
+
+# Scoring configuration
+scoring:
+  # Energy deposition binning
+  energy_deposition:
+    enabled: true
+    x_bins: 1
+    y_bins: 1
+    z_bins: 100
+    x_range: [-100, 100]   # cm
+    y_range: [-100, 100]   # cm
+    z_range: [0, 1.75]     # cm (match slab)
+
+  # Neutron spectrum at exit
+  neutron_spectrum:
+    enabled: true
+    energy_bins: 100
+    energy_range: [1e-11, 1e1]  # GeV (log scale) - 10 meV to 10 GeV
+
+  # Secondary particle tracking
+  secondaries:
+    enabled: true
+    particles: [neutron, photon, electron, proton]

@@ -1,0 +1,81 @@
+# Analysis configuration for comparing multiple simulation results
+# This file controls which results to analyze and how to plot them
+
+# Directory containing simulation results
+results_dir: output/scan_results
+
+# Which results to include (auto-detect if empty)
+include:
+  fluka:
+    - JEFF
+    - ENDF
+    - JENDL
+  geant4:
+    - FTFP_BERT_HP
+    - QGSP_BIC_HP
+    - Shielding
+
+# Reference model for ratio plots
+reference:
+  code: fluka
+  model: JEFF
+
+# Plot settings
+plots:
+  # 1D energy deposition profile (z-projection)
+  edep_profile_z:
+    enabled: true
+    log_scale: true
+    show_ratio: true
+    output: edep_profile_z
+
+  # 2D energy deposition map (if 2D scoring enabled)
+  edep_map_xz:
+    enabled: false
+    log_scale: true
+    output: edep_map_xz
+
+  # Neutron exit spectrum
+  neutron_spectrum:
+    enabled: true
+    log_scale: true
+    show_ratio: true
+    output: neutron_spectrum
+
+  # Total energy deposited comparison (bar chart)
+  total_edep_bar:
+    enabled: true
+    output: total_edep_comparison
+
+  # Model spread / uncertainty band
+  model_spread:
+    enabled: true
+    output: model_spread
+
+# Output settings
+output_dir: output/analysis
+formats: [png, pdf]  # Output formats
+dpi: 150
+
+# Style settings
+style:
+  figsize: [10, 8]
+  # Color scheme for different codes/models
+  colors:
+    fluka:
+      JEFF: "#1f77b4"
+      ENDF: "#2ca02c"
+      JENDL: "#d62728"
+      CENDL: "#9467bd"
+      BROND: "#8c564b"
+    geant4:
+      FTFP_BERT: "#ff7f0e"
+      FTFP_BERT_HP: "#e377c2"
+      QGSP_BERT: "#7f7f7f"
+      QGSP_BERT_HP: "#bcbd22"
+      QGSP_BIC_HP: "#17becf"
+      Shielding: "#aec7e8"
+  # Line styles
+  linestyles:
+    fluka: "-"      # solid for FLUKA
+    geant4: "--"    # dashed for Geant4

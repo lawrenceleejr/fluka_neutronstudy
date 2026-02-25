@@ -1,0 +1,10 @@
+FROM ghcr.io/kalradaisy/geant4muc:dev-CI
+
+# Copy and build the comparison app
+COPY geant4_app /opt/comparison_app
+WORKDIR /opt/comparison_app/build
+
+RUN cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+    && make -j$(nproc) \
+    && make install

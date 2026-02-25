@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script to run FLUKA neutron simulation in Docker container
 # Usage: ./run_fluka.sh [number_of_cycles] [energy_MeV] [neutron_library]
-# Available libraries: ENDF, JEFF, TENDL (default: JEFF)
+# Available libraries: JEFF, ENDF, JENDL, CENDL, BROND (default: JEFF)
 
 set -e
 
@@ -60,54 +60,29 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     # Neutron library configuration
     NEUTRON_LIB='"$NEUTRON_LIB"'
 
-    # Set download URL based on library choice
+    # Map library name to FLUKA LOW-PWXS SDUM value (max 8 characters!)
     case "$NEUTRON_LIB" in
         JEFF|jeff)
-            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/jeff33_xsec_fluka4-4.4_20241021.tar.xz"
-            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/jeff33_xsec.tar.xz"
+            PWXS_SDUM="JEFF-3.3"
             ;;
-        TENDL|tendl)
-            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/tendl21_xsec_fluka4-4.4_20241021.tar.xz"
-            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/tendl21_xsec.tar.xz"
+        ENDF|endf)
+            PWXS_SDUM="ENDFB8.0"
             ;;
-        ENDF|endf|*)
-            NEUTRON_URL="https://fluka.cern/download/neutron-data-libraries/endf8r0_xsec_fluka4-4.4_20241021.tar.xz"
-            NEUTRON_URL_ALT="https://fluka.cern/download/latest/data/endf8r0_xsec.tar.xz"
+        JENDL|jendl)
+            PWXS_SDUM="JENDL4.0"
+            ;;
+        CENDL|cendl)
+            PWXS_SDUM="CENDL3.1"
+            ;;
+        BROND|brond)
+            PWXS_SDUM="BROND3.1"
+            ;;
+        *)
+            echo "Unknown library: $NEUTRON_LIB, defaulting to JEFF-3.3"
+            PWXS_SDUM="JEFF-3.3"
             ;;
     esac
-
-    # Download neutron data if not present
-    NEUTRON_DATA_DIR="$FLUPRO/data/neutron"
-    if [ ! -d "$NEUTRON_DATA_DIR" ]; then
-        echo "Downloading FLUKA pointwise neutron data libraries ($NEUTRON_LIB)..."
-        echo "This may take a few minutes on first run..."
-        mkdir -p "$FLUPRO/data"
-        cd "$FLUPRO/data"
-
-        # Download from FLUKA website
-        wget -q --show-progress "$NEUTRON_URL" -O neutron_data.tar.xz || {
-            echo "Failed to download neutron data. Trying alternative URL..."
-            wget -q --show-progress "$NEUTRON_URL_ALT" -O neutron_data.tar.xz || {
-                echo "ERROR: Could not download neutron data libraries."
-                echo "Please download manually from: https://fluka.cern/download/neutron-data-libraries"
-                exit 1
-            }
-        }
-
-        echo "Extracting neutron data..."
-        tar -xf neutron_data.tar.xz
-        rm neutron_data.tar.xz
-
-        # Find and rename the extracted directory to "neutron"
-        EXTRACTED_DIR=$(ls -d */ 2>/dev/null | head -1)
-        if [ -n "$EXTRACTED_DIR" ] && [ ! -d "neutron" ]; then
-            mv "$EXTRACTED_DIR" neutron
-        fi
-
-        echo "Neutron data ($NEUTRON_LIB) installed successfully."
-    else
-        echo "Neutron data already present."
-    fi
+    echo "Using pointwise neutron library: $PWXS_SDUM"
 
     INPUT_FILE="neutron_bpe.inp"
     INPUT_BASE="${INPUT_FILE%.inp}"
@@ -127,6 +102,10 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     ENERGY_STR=$(printf "%10.4E" $ENERGY_GEV)
     sed -i "s/^BEAM .*/BEAM      $ENERGY_STR       0.0       0.0       0.0       0.0       1.0NEUTRON/" $INPUT_FILE
     echo "Set neutron energy to $ENERGY_MEV MeV ($ENERGY_GEV GeV)"
+
+    # Remove any LOW-PWXS cards (pointwise libraries not installed in container;
+    # DEFAULTS PRECISIO provides good group-wise neutron transport)
+    sed -i "/^LOW-PWXS/d" $INPUT_FILE
 
     echo "FLUKA path: $FLUPRO"
     echo "Running simulation with rfluka..."
@@ -196,6 +175,22 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     fi
     echo "done 22"
 
+    # For unit 23 (USRBDX - neutron exit spectrum)
+    if ls ${INPUT_BASE}001_fort.23 1>/dev/null 2>&1; then
+        echo "Processing USRBDX output (unit 23)..."
+        echo "${INPUT_BASE}001_fort.23" > usrbdx23_list.txt
+        for i in $(seq -f "%03g" 2 $CYCLES); do
+            if [ -f "${INPUT_BASE}${i}_fort.23" ]; then
+                echo "${INPUT_BASE}${i}_fort.23" >> usrbdx23_list.txt
+            fi
+        done
+        echo "" >> usrbdx23_list.txt
+        echo "neut_exit.bnn" >> usrbdx23_list.txt
+
+        $FLUPRO/bin/usxsuw < usrbdx23_list.txt
+        echo "done 23"
+    fi
+
     # Convert binary USRBIN to ASCII using usbrea
     echo "Converting to ASCII format..."
 
@@ -205,6 +200,11 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
 
     if [ -f edep_3d.bnn ]; then
         echo -e "edep_3d.bnn\nedep_3d.dat\n" | $FLUPRO/bin/usbrea
+    fi
+
+    # Convert USRBDX to ASCII using usxrea
+    if [ -f neut_exit.bnn ]; then
+        echo -e "neut_exit.bnn\nneut_exit.dat\n" | $FLUPRO/bin/usxrea
     fi
 
     # Copy all outputs back to data directory
