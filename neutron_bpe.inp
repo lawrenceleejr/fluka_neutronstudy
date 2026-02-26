@@ -23,9 +23,8 @@ GEOEND
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Material: Borated polyethylene compound (density 0.95 g/cm3)
 * Composition by mass: 12% H, 63% C, 5% B
-* Material indices: HYDROGEN=3, BORON=5, CARBON=6
 MATERIAL         0.0       0.0      0.95      26.0       0.0       0.0BORPOLY
-COMPOUND       -0.12       3.0     -0.63       6.0     -0.05       5.0BORPOLY
+COMPOUND       -0.12  HYDROGEN     -0.63    CARBON     -0.05     BORONBORPOLY
 *...+....1....+....2....+....3....+....4....+....5....+....6....+....7....+....8
 * Assignments
 ASSIGNMA    BLCKHOLE   BLKHOLE

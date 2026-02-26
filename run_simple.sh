@@ -184,8 +184,13 @@ echo ''
 FLUKA_RC=\$?
 
 echo ''
-echo '--- neutron_bpe001.out (last 60 lines) ---'
-tail -60 neutron_bpe001.out 2>/dev/null || echo '(no .out file)'
+echo "--- rfluka exit code: \$FLUKA_RC ---"
+echo ''
+echo '--- Working directory contents ---'
+ls -la .
+echo ''
+echo '--- neutron_bpe001.out (full) ---'
+cat neutron_bpe001.out 2>/dev/null || echo '(no .out file)'
 echo ''
 echo '--- neutron_bpe001.err ---'
 cat neutron_bpe001.err 2>/dev/null || echo '(no .err file)'
