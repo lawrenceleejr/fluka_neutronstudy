@@ -88,13 +88,24 @@ for d in "$FLUPRO/data" "$FLUPRO/neutrondata"; do
 done
 
 echo ""
-echo "--- Pointwise neutron XS libraries (LOW-PWXS, optional) ---"
-found=$(find "$FLUPRO" -name "*.nds" 2>/dev/null)
-if [ -n "$found" ]; then
-    echo "$found" | sed "s/^/  /"
+echo "--- Pointwise neutron XS libraries (LOW-PWXS) ---"
+neutron_dir="$FLUPRO/data/neutron"
+if [ -d "$neutron_dir" ]; then
+    libs=$(ls "$neutron_dir" 2>/dev/null)
+    if [ -n "$libs" ]; then
+        echo "  $neutron_dir (built into image):"
+        echo "$libs" | sed "s/^/    /"
+    else
+        echo "  $neutron_dir: present but empty"
+    fi
 else
-    echo "  None found under $FLUPRO"
-    echo "  (pointwise libraries like JEFF-3.3 are not in the stock image)"
+    echo "  $neutron_dir: not present"
+fi
+# Legacy: some FLUKA versions use .nds files instead of subdirectories
+nds=$(find "$FLUPRO" -name "*.nds" -maxdepth 6 2>/dev/null | head -5)
+if [ -n "$nds" ]; then
+    echo "  .nds files (legacy format):"
+    echo "$nds" | sed "s/^/    /"
 fi
 
 echo ""

@@ -130,18 +130,24 @@ def run_fluka_native(
         'echo "Set neutron energy to $ENERGY_GEV GeV"',
         # Remove any existing LOW-PWXS cards first
         'sed -i "/^LOW-PWXS/d" $INPUT_FILE',
-        # Install FLUKA pointwise neutron library packages if mounted, then activate
-        # the selected library.  neutron_libraries/ is in the project root, already
-        # mounted at /data.
+        # Determine if pointwise data is available: stock image first, then .deb packages.
+        'PWXS_AVAILABLE=false',
+        'if [ -d "$FLUPRO/data/neutron" ] && ls "$FLUPRO/data/neutron/"* 2>/dev/null | head -1 >/dev/null; then',
+        '  echo "Stock pointwise neutron libraries found at $FLUPRO/data/neutron/"',
+        '  PWXS_AVAILABLE=true',
+        'fi',
         'if ls /data/neutron_libraries/fluka-pw-*.deb 2>/dev/null | head -1 >/dev/null; then',
-        '  echo "Installing FLUKA pointwise neutron library packages..."',
+        '  echo "Installing additional FLUKA pointwise neutron library packages..."',
         '  dpkg -i /data/neutron_libraries/fluka-pw-*.deb 2>&1 \\',
         '      || echo "WARNING: one or more packages may have failed to install"',
+        '  PWXS_AVAILABLE=true',
+        'fi',
+        'if [ "$PWXS_AVAILABLE" = true ]; then',
         f'  PWXS_LINE="LOW-PWXS  {" " * 60}{pwxs_sdum}"',
         '  sed -i "/^START/i\\$PWXS_LINE" "$INPUT_FILE"',
         f'  echo "Activated pointwise library: {pwxs_sdum}"',
         'else',
-        '  echo "No pointwise library packages; using built-in group-wise data"',
+        f'  echo "No pointwise neutron library available for {pwxs_sdum}; using built-in group-wise data"',
         'fi',
         'echo "FLUKA path: $FLUPRO"',
         'echo "Running simulation with rfluka..."',

@@ -109,16 +109,24 @@ docker run --rm -v "$(pwd):/data" -w "$WORK_DIR" "$DOCKER_IMAGE" bash -c '
     # Install FLUKA pointwise neutron library packages if present, then activate
     # the selected library.  neutron_libraries/ is in the project root, already
     # mounted at /data.
+    # Determine if pointwise data is available: stock image first, then .deb packages.
+    PWXS_AVAILABLE=false
+    if [ -d "$FLUPRO/data/neutron" ] && ls "$FLUPRO/data/neutron/"* 2>/dev/null | head -1 >/dev/null; then
+        echo "Stock pointwise neutron libraries found at $FLUPRO/data/neutron/"
+        PWXS_AVAILABLE=true
+    fi
     if ls /data/neutron_libraries/fluka-pw-*.deb 2>/dev/null | head -1 >/dev/null; then
-        echo "Installing FLUKA pointwise neutron library packages..."
+        echo "Installing additional FLUKA pointwise neutron library packages..."
         dpkg -i /data/neutron_libraries/fluka-pw-*.deb 2>&1 \
             || echo "WARNING: one or more packages may have failed to install"
-        # Insert LOW-PWXS card before START to activate the selected library
+        PWXS_AVAILABLE=true
+    fi
+    if [ "$PWXS_AVAILABLE" = true ]; then
         PWXS_LINE="LOW-PWXS  $(printf '%60s')${PWXS_SDUM}"
         sed -i "/^START/i\\$PWXS_LINE" $INPUT_FILE
         echo "Activated pointwise library: $PWXS_SDUM"
     else
-        echo "No pointwise library packages found in /data/neutron_libraries/; using built-in group-wise data"
+        echo "No pointwise neutron library available for $PWXS_SDUM; using built-in group-wise data"
     fi
 
     echo "FLUKA path: $FLUPRO"
